@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"time"
 
-	signature "github.com/fr0ster/go-trading-utils/low_level/utils/signature"
+	signature "github.com/fr0ster/turbo-restler/low_level/utils/signature"
 )
 
 // Функція для отримання масиву всіх спотових ордерів
