@@ -20,7 +20,10 @@ type WsHandler func(message []byte)
 // ErrHandler handles errors
 type ErrHandler func(err error)
 
-func StartStreamer(endpoint string, handler WsHandler, errHandler ErrHandler) (doneC, stopC chan struct{}, err error) {
+func StartStreamer(endpoint string, handler WsHandler, errHandler ErrHandler, websocketKeepalive ...bool) (doneC, stopC chan struct{}, err error) {
+	if len(websocketKeepalive) > 0 && websocketKeepalive[0] {
+		WebsocketKeepalive = websocketKeepalive[0]
+	}
 	Dialer := websocket.Dialer{
 		Proxy:             http.ProxyFromEnvironment,
 		HandshakeTimeout:  45 * time.Second,
