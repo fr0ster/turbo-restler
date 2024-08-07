@@ -12,14 +12,15 @@ import (
 )
 
 // Функція для отримання масиву всіх спотових ордерів
-func CallAPI(baseUrl, method string, params url.Values, endpoint string, sign signature.Sign) (body []byte, err error) {
+func CallRestAPI(baseUrl, method string, params url.Values, endpoint string, sign signature.Sign) (body []byte, err error) {
 	var (
-		v           url.Values
+		signature   = url.Values{}
 		queryString string
 	)
 
 	if params != nil && sign == nil {
-		return nil, fmt.Errorf("sign is required")
+		err = fmt.Errorf("sign is required")
+		return
 	}
 
 	// Створення HTTP клієнта
@@ -34,12 +35,9 @@ func CallAPI(baseUrl, method string, params url.Values, endpoint string, sign si
 		timestamp := int64(time.Nanosecond) * time.Now().UnixNano() / int64(time.Millisecond)
 		params.Set("timestamp", strconv.FormatInt(timestamp, 10))
 		// Створення підпису
-		queryString = params.Encode()
-		v = url.Values{}
-		signature := sign.CreateSignature(queryString)
-		v.Set("signature", signature)
+		signature.Set("signature", sign.CreateSignature(params.Encode()))
 		// Додавання параметрів до URL
-		req.URL.RawQuery = fmt.Sprintf("%s&%s", queryString, v.Encode())
+		req.URL.RawQuery = fmt.Sprintf("%s&%s", queryString, signature.Encode())
 
 		// Додавання заголовків
 		req.Header.Set("X-MBX-APIKEY", sign.GetAPIKey())
