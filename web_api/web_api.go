@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/url"
 
-	"github.com/bitly/go-simplejson"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 )
@@ -61,7 +60,7 @@ func ParseLimit(data []byte) ([]RateLimit, error) {
 }
 
 // Функція для розміщення ордера через WebSocket
-func CallWebAPI(host, path string, method string, params interface{}) (response []byte, limits []RateLimit, err error) {
+func CallWebAPI(host, path string, method string, params interface{}) (response *Response, err error) {
 	var requestBody []byte
 	if params == nil {
 		request := RequestWithoutParams{
@@ -106,27 +105,14 @@ func CallWebAPI(host, path string, method string, params interface{}) (response 
 
 	// Читання відповіді
 	_, body, err := conn.ReadMessage()
-	msg, err := ParseResponse(body)
+	response, err = ParseResponse(body)
 	if err != nil {
 		err = fmt.Errorf("error parsing response: %v", err)
 		return
 	}
-	if msg.Status != 200 {
-		err = fmt.Errorf("error response: %v", msg.Error)
+	if response.Status != 200 {
+		err = fmt.Errorf("error request: %v", response.Error)
 		return
 	}
-	jMap, err := simplejson.NewJson(body)
-	if err != nil {
-		return
-	}
-	response, err = jMap.Get("result").Encode()
-	if err != nil {
-		return
-	}
-	limit, err := jMap.Get("rateLimits").Encode()
-	if err != nil {
-		return
-	}
-	limits, err = ParseLimit(limit)
 	return
 }
