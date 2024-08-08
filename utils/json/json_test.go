@@ -18,25 +18,6 @@ func TestNewJSON(t *testing.T) {
 	assert.Equal(t, 30, age)
 }
 
-func TestStructToSortedUrlValues(t *testing.T) {
-	type Person struct {
-		Name string `json:"name"`
-		Age  int    `json:"age"`
-	}
-
-	p := Person{
-		Name: "John",
-		Age:  30,
-	}
-
-	params, err := json.StructToSortedUrlValues(p)
-	assert.Nil(t, err)
-
-	expected := "age=30&name=John"
-	actual := params.Encode()
-	assert.Equal(t, expected, actual)
-}
-
 func TestStructToUrlValues(t *testing.T) {
 	type Person struct {
 		Name string `json:"name"`
@@ -64,7 +45,7 @@ func TestIsEmptyValue(t *testing.T) {
 	}
 
 	person := Person{Name: "John", Age: 30, Params: nil}
-	params, err := json.StructToSortedUrlValues(person)
+	params, err := json.StructToUrlValues(person)
 	assert.Nil(t, err)
 	// Add test cases here to cover different scenarios for isEmptyValue function
 	assert.Equal(t, "John", params.Get("name"))
