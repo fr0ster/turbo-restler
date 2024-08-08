@@ -78,7 +78,7 @@ func StructToParameterMap(data interface{}) (params ParameterMap, err error) {
 			} else {
 				tag = strings.Split(tag, ",")[0]
 			}
-			params[tag] = fmt.Sprintf("%v", value)
+			params[tag] = value.Interface()
 		}
 	}
 
@@ -94,4 +94,15 @@ func ConvertUrlValuesToMap(values url.Values) map[string]string {
 		}
 	}
 	return result
+}
+
+// ConvertParameterMapToString конвертує ParameterMap в строку у форматі query string
+func ConvertParameterMapToString(m ParameterMap) string {
+	values := url.Values{}
+	for key, value := range m {
+		if value != nil && value != "" {
+			values.Set(key, fmt.Sprintf("%v", value))
+		}
+	}
+	return values.Encode()
 }

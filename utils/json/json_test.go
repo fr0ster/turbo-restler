@@ -72,7 +72,7 @@ func TestStructToParameterMap(t *testing.T) {
 
 	expected := json.ParameterMap{
 		"name": "John",
-		"age":  "30",
+		"age":  30,
 	}
 	assert.Equal(t, expected, params)
 
@@ -81,6 +81,17 @@ func TestStructToParameterMap(t *testing.T) {
 	assert.Nil(t, err)
 
 	assert.Equal(t, expected, params)
+}
+
+func TestConvertParameterMapToString(t *testing.T) {
+	params := json.ParameterMap{
+		"name": "John",
+		"age":  30,
+	}
+
+	expected := "age=30&name=John"
+	actual := json.ConvertParameterMapToString(params)
+	assert.Equal(t, expected, actual)
 }
 
 func TestConvertUrlValuesToMap(t *testing.T) {

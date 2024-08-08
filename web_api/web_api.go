@@ -4,7 +4,6 @@ import (
 	encoding_json "encoding/json"
 	"fmt"
 	"net/url"
-	"strconv"
 	"time"
 
 	"github.com/fr0ster/turbo-restler/utils/json"
@@ -59,7 +58,7 @@ func parseResponse(data []byte) (*Response, error) {
 }
 
 // Функція виклику Web API
-func CallWebAPI(host, path string, method string, params url.Values, sign signature.Sign) (response *Response, err error) {
+func CallWebAPI(host, path string, method string, params json.ParameterMap, sign signature.Sign) (response *Response, err error) {
 	var (
 		requestBody []byte
 	)
@@ -68,15 +67,14 @@ func CallWebAPI(host, path string, method string, params url.Values, sign signat
 		return
 	}
 	if params != nil {
-		timestamp := int64(time.Nanosecond) * time.Now().UnixNano() / int64(time.Millisecond)
-		params.Set("timestamp", strconv.FormatInt(timestamp, 10))
+		params["timestamp"] = int64(time.Nanosecond) * time.Now().UnixNano() / int64(time.Millisecond)
 		// Створення підпису
-		params.Set("signature", sign.CreateSignature(params.Encode()))
+		params["signature"] = sign.CreateSignature(json.ConvertParameterMapToString(params))
 	}
 	request := Request{
 		ID:     uuid.New().String(),
 		Method: method,
-		Params: json.ConvertUrlValuesToMap(params),
+		Params: params,
 	}
 	// Серіалізація запиту в JSON
 	requestBody, err = encoding_json.Marshal(request)
