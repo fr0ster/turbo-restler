@@ -37,22 +37,23 @@ func TestStructToUrlValues(t *testing.T) {
 
 	params, err := json.StructToUrlValues(p)
 	assert.Nil(t, err)
+	assert.Equal(t, "John", params.Get("name"))
+	ptr := &p
+	params, err = json.StructToUrlValues(ptr)
+	assert.Nil(t, err)
+	assert.Equal(t, "John", params.Get("name"))
 
 	expected := "age=30&name=John"
 	actual := params.Encode()
 	assert.Equal(t, expected, actual)
 
-	ptr := &p
-	params, err = json.StructToUrlValues(ptr)
-	assert.Nil(t, err)
-
-	expected = "age=30&name=John"
-	actual = params.Encode()
-	assert.Equal(t, expected, actual)
-
 	jsonPerson, err := encoding_json.Marshal(json.ConvertUrlValuesToMap(params))
 	assert.Nil(t, err)
 	assert.Equal(t, `{"age":"30","name":"John"}`, string(jsonPerson))
+
+	jsonPerson, err = encoding_json.Marshal(p)
+	assert.Nil(t, err)
+	assert.Equal(t, `{"name":"John","age":30}`, string(jsonPerson))
 }
 
 func TestStructToParameterMap(t *testing.T) {
@@ -86,6 +87,7 @@ func TestConvertUrlValuesToMap(t *testing.T) {
 	params := url.Values{}
 	params.Set("name", "John")
 	params.Set("age", "30")
+
 	request := web_api.Request{
 		ID:     uuid.New().String(),
 		Method: "test.test",
@@ -114,4 +116,19 @@ func TestIsEmptyValue(t *testing.T) {
 	assert.Equal(t, "30", params.Get("age"))
 	assert.Equal(t, "", params.Get("params"))
 	assert.Equal(t, "age=30&name=John", params.Encode())
+}
+
+func TestStructToUrlValuesWithTags(t *testing.T) {
+	mapper := make(map[string]interface{})
+	mapper["name"] = "John"
+	mapper["age"] = "30.2"
+	mapper["timestamp"] = 1111111111
+	request := web_api.Request{
+		ID:     "121212",
+		Method: "method.method",
+		Params: mapper,
+	}
+	requestMap, err := encoding_json.Marshal(request)
+	assert.Nil(t, err)
+	assert.Equal(t, `{"id":"121212","method":"method.method","params":{"age":"30.2","name":"John","timestamp":1111111111}}`, string(requestMap))
 }

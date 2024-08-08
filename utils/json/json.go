@@ -9,7 +9,7 @@ import (
 	"github.com/bitly/go-simplejson"
 )
 
-type ParameterMap map[string]string
+type ParameterMap map[string]interface{}
 
 func NewJSON(data []byte) (j *simplejson.Json, err error) {
 	j, err = simplejson.NewJson(data)
