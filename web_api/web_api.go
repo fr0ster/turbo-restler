@@ -1,10 +1,11 @@
 package common
 
 import (
-	"encoding/json"
+	encoding_json "encoding/json"
 	"fmt"
 	"net/url"
 
+	"github.com/fr0ster/turbo-restler/utils/json"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 )
@@ -14,10 +15,6 @@ type (
 		ID     string      `json:"id"`
 		Method string      `json:"method"`
 		Params interface{} `json:"params"`
-	}
-	RequestWithoutParams struct {
-		ID     string `json:"id"`
-		Method string `json:"method"`
 	}
 	Response struct {
 		ID         string      `json:"id"`
@@ -43,7 +40,7 @@ type (
 
 func ParseResponse(data []byte) (*Response, error) {
 	var response Response
-	err := json.Unmarshal(data, &response)
+	err := encoding_json.Unmarshal(data, &response)
 	if err != nil {
 		return nil, fmt.Errorf("error unmarshaling response: %v", err)
 	}
@@ -52,7 +49,7 @@ func ParseResponse(data []byte) (*Response, error) {
 
 func ParseLimit(data []byte) ([]RateLimit, error) {
 	var response []RateLimit
-	err := json.Unmarshal(data, &response)
+	err := encoding_json.Unmarshal(data, &response)
 	if err != nil {
 		return nil, fmt.Errorf("error unmarshaling response: %v", err)
 	}
@@ -62,30 +59,18 @@ func ParseLimit(data []byte) ([]RateLimit, error) {
 // Функція для розміщення ордера через WebSocket
 func CallWebAPI(host, path string, method string, params interface{}) (response *Response, err error) {
 	var requestBody []byte
-	if params == nil {
-		request := RequestWithoutParams{
-			ID:     uuid.New().String(),
-			Method: method,
-		}
-		// Серіалізація запиту в JSON
-		requestBody, err = json.Marshal(request)
-		if err != nil {
-			err = fmt.Errorf("error marshaling request: %v", err)
-			return
-		}
-	} else {
-		request := Request{
-			ID:     uuid.New().String(),
-			Method: method,
-			Params: params,
-		}
-		// Серіалізація запиту в JSON
-		requestBody, err = json.Marshal(request)
-		if err != nil {
-			err = fmt.Errorf("error marshaling request: %v", err)
-			return
-		}
+	request := Request{
+		ID:     uuid.New().String(),
+		Method: method,
+		Params: params,
 	}
+	// Серіалізація запиту в JSON
+	requestBody, err = json.StructToSortedQueryByteArr(request)
+	if err != nil {
+		err = fmt.Errorf("error marshaling request: %v", err)
+		return
+	}
+	// }
 
 	// Підключення до WebSocket
 	u := url.URL{Scheme: "wss", Host: host, Path: path}
