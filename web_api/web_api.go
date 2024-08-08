@@ -6,7 +6,7 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/fr0ster/turbo-restler/utils/json"
+	"github.com/bitly/go-simplejson"
 	"github.com/fr0ster/turbo-restler/utils/signature"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -58,8 +58,9 @@ func parseResponse(data []byte) (*Response, error) {
 }
 
 // Функція виклику Web API
-func CallWebAPI(host, path string, method string, params json.ParameterMap, sign signature.Sign) (response *Response, err error) {
+func CallWebAPI(host, path string, method string, params *simplejson.Json, sign signature.Sign) (response *Response, err error) {
 	var (
+		signature   []byte
 		requestBody []byte
 	)
 	if params != nil && sign == nil {
@@ -67,9 +68,14 @@ func CallWebAPI(host, path string, method string, params json.ParameterMap, sign
 		return
 	}
 	if params != nil {
-		params["timestamp"] = int64(time.Nanosecond) * time.Now().UnixNano() / int64(time.Millisecond)
+		params.Set("timestamp", int64(time.Nanosecond)*time.Now().UnixNano()/int64(time.Millisecond))
 		// Створення підпису
-		params["signature"] = sign.CreateSignature(json.ConvertParameterMapToString(params))
+		signature, err = params.Encode()
+		if err != nil {
+			err = fmt.Errorf("error encoding params: %v", err)
+			return
+		}
+		params.Set("signature", sign.CreateSignature(string(signature)))
 	}
 	request := Request{
 		ID:     uuid.New().String(),
