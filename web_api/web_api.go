@@ -7,7 +7,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/fr0ster/turbo-restler/utils/json"
 	"github.com/fr0ster/turbo-restler/utils/signature"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -63,7 +62,6 @@ func ParseLimit(data []byte) ([]RateLimit, error) {
 func CallWebAPI(host, path string, method string, params url.Values, sign signature.Sign) (response *Response, err error) {
 	var (
 		requestBody []byte
-		signedStr   string
 	)
 	if params != nil && sign == nil {
 		err = fmt.Errorf("sign is required")
@@ -73,12 +71,7 @@ func CallWebAPI(host, path string, method string, params url.Values, sign signat
 		timestamp := int64(time.Nanosecond) * time.Now().UnixNano() / int64(time.Millisecond)
 		params.Set("timestamp", strconv.FormatInt(timestamp, 10))
 		// Створення підпису
-		signedStr, err = json.UrlValuesToString(params)
-		if err != nil {
-			err = fmt.Errorf("error marshaling params: %v", err)
-			return
-		}
-		params.Set("signature", sign.CreateSignature(signedStr))
+		params.Set("signature", sign.CreateSignature(params.Encode()))
 	}
 	request := Request{
 		ID:     uuid.New().String(),
@@ -86,7 +79,7 @@ func CallWebAPI(host, path string, method string, params url.Values, sign signat
 		Params: params,
 	}
 	// Серіалізація запиту в JSON
-	requestBody, err = json.StructToSortedQueryByteArr(request)
+	requestBody, err = encoding_json.Marshal(request)
 	if err != nil {
 		err = fmt.Errorf("error marshaling request: %v", err)
 		return
