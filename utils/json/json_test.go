@@ -35,6 +35,14 @@ func TestStructToUrlValues(t *testing.T) {
 	expected := "age=30&name=John"
 	actual := params.Encode()
 	assert.Equal(t, expected, actual)
+
+	ptr := &p
+	params, err = json.StructToUrlValues(ptr)
+	assert.Nil(t, err)
+
+	expected = "age=30&name=John"
+	actual = params.Encode()
+	assert.Equal(t, expected, actual)
 }
 
 func TestIsEmptyValue(t *testing.T) {
