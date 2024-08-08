@@ -2,6 +2,7 @@ package json_test
 
 import (
 	encoding_json "encoding/json"
+	"net/url"
 	"testing"
 
 	"github.com/fr0ster/turbo-restler/utils/json"
@@ -185,6 +186,12 @@ func TestMarshal(t *testing.T) {
 	person := Person{Name: "John", Age: 30}
 	jsonData, err := json.Marshal(person)
 	assert.Nil(t, err)
+	urlValues, err := json.StructToSortedUrlValues(person)
+	assert.Nil(t, err)
+	jsonUrlValues, err := json.UrlValuesToSortedJSON(urlValues)
+	assert.Nil(t, err)
+	byteUrlValues, err := json.UrlValuesToQueryString(urlValues)
+	assert.Nil(t, err)
 	jsonPerson, err := json.StructToSortedJSON(person)
 	assert.Nil(t, err)
 	strPerson, err := json.StructToQueryString(person)
@@ -197,6 +204,8 @@ func TestMarshal(t *testing.T) {
 	assert.Equal(t, `{"age":30,"name":"John"}`, string(jsonPerson))
 	assert.Equal(t, "age=30&name=John", strPerson)
 	assert.Equal(t, `{"name":"John","age":30}`, string(bytePerson))
+	assert.Equal(t, `{"age":"30","name":"John"}`, string(jsonUrlValues))
+	assert.Equal(t, "age=30&name=John", byteUrlValues)
 }
 
 func StructToSortedQueryByteArr(t *testing.T) {
@@ -211,4 +220,28 @@ func StructToSortedQueryByteArr(t *testing.T) {
 
 	// Add assertions here to test the generated sorted query byte array
 	assert.Equal(t, "age=30&name=John", string(byteArr))
+}
+
+func TestUrlValuesRequest(t *testing.T) {
+	type Request struct {
+		ID     string     `json:"id"`
+		Method string     `json:"method"`
+		Params url.Values `json:"params"`
+	}
+
+	request := Request{ID: "1", Method: "test", Params: nil}
+	params, err := json.StructToSortedUrlValues(request)
+	assert.Nil(t, err)
+	byteRequest, err := encoding_json.Marshal(request)
+	assert.Nil(t, err)
+	strRequest, err := json.StructToSortedQueryByteArr(request)
+	assert.Nil(t, err)
+
+	// Add assertions here to test the generated request
+	assert.Equal(t, "1", params.Get("id"))
+	assert.Equal(t, "test", params.Get("method"))
+	assert.Equal(t, "", params.Get("params"))
+	assert.Equal(t, "id=1&method=test", params.Encode())
+	assert.Equal(t, `{"id":"1","method":"test","params":null}`, string(byteRequest))
+	assert.Equal(t, `{"id":"1","method":"test"}`, string(strRequest))
 }
