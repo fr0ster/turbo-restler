@@ -40,7 +40,15 @@ type (
 	}
 )
 
-func ParseResponse(data []byte) (*Response, error) {
+func (rq *Request) SetParameter(name string, value string) {
+	if rq.Params == nil {
+		rq.Params = url.Values{}
+	}
+	params := rq.Params.(url.Values)
+	params.Set(name, value)
+}
+
+func parseResponse(data []byte) (*Response, error) {
 	var response Response
 	err := encoding_json.Unmarshal(data, &response)
 	if err != nil {
@@ -49,16 +57,7 @@ func ParseResponse(data []byte) (*Response, error) {
 	return &response, nil
 }
 
-func ParseLimit(data []byte) ([]RateLimit, error) {
-	var response []RateLimit
-	err := encoding_json.Unmarshal(data, &response)
-	if err != nil {
-		return nil, fmt.Errorf("error unmarshaling response: %v", err)
-	}
-	return response, nil
-}
-
-// Функція для розміщення ордера через WebSocket
+// Функція виклику Web API
 func CallWebAPI(host, path string, method string, params url.Values, sign signature.Sign) (response *Response, err error) {
 	var (
 		requestBody []byte
@@ -103,7 +102,7 @@ func CallWebAPI(host, path string, method string, params url.Values, sign signat
 
 	// Читання відповіді
 	_, body, err := conn.ReadMessage()
-	response, err = ParseResponse(body)
+	response, err = parseResponse(body)
 	if err != nil {
 		err = fmt.Errorf("error parsing response: %v", err)
 		return
