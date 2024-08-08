@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/fr0ster/turbo-restler/utils/json"
 	"github.com/fr0ster/turbo-restler/utils/signature"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -75,7 +76,7 @@ func CallWebAPI(host, path string, method string, params url.Values, sign signat
 	request := Request{
 		ID:     uuid.New().String(),
 		Method: method,
-		Params: params,
+		Params: json.ConvertUrlValuesToMap(params),
 	}
 	// Серіалізація запиту в JSON
 	requestBody, err = encoding_json.Marshal(request)

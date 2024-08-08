@@ -1,9 +1,15 @@
 package json_test
 
 import (
+	"net/url"
 	"testing"
 
+	encoding_json "encoding/json"
+
 	"github.com/fr0ster/turbo-restler/utils/json"
+	web_api "github.com/fr0ster/turbo-restler/web_api"
+
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -43,6 +49,10 @@ func TestStructToUrlValues(t *testing.T) {
 	expected = "age=30&name=John"
 	actual = params.Encode()
 	assert.Equal(t, expected, actual)
+
+	jsonPerson, err := encoding_json.Marshal(json.ConvertUrlValuesToMap(params))
+	assert.Nil(t, err)
+	assert.Equal(t, `{"age":"30","name":"John"}`, string(jsonPerson))
 }
 
 func TestStructToParameterMap(t *testing.T) {
@@ -70,6 +80,23 @@ func TestStructToParameterMap(t *testing.T) {
 	assert.Nil(t, err)
 
 	assert.Equal(t, expected, params)
+}
+
+func TestConvertUrlValuesToMap(t *testing.T) {
+	params := url.Values{}
+	params.Set("name", "John")
+	params.Set("age", "30")
+	request := web_api.Request{
+		ID:     uuid.New().String(),
+		Method: "test.test",
+		Params: json.ConvertUrlValuesToMap(params),
+	}
+	bytes, err := encoding_json.Marshal(request)
+	assert.Nil(t, err)
+	assert.Equal(t, `{"id":"`+request.ID+`","method":"`+request.Method+`","params":{"age":"30","name":"John"}}`, string(bytes))
+	bytes, err = encoding_json.Marshal(json.ConvertUrlValuesToMap(params))
+	assert.Nil(t, err)
+	assert.Equal(t, `{"age":"30","name":"John"}`, string(bytes))
 }
 
 func TestIsEmptyValue(t *testing.T) {

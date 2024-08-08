@@ -84,3 +84,14 @@ func StructToParameterMap(data interface{}) (params ParameterMap, err error) {
 
 	return params, nil
 }
+
+// ConvertUrlValuesToMap конвертує url.Values в map[string]string
+func ConvertUrlValuesToMap(values url.Values) map[string]string {
+	result := make(map[string]string)
+	for key, value := range values {
+		if len(value) > 0 {
+			result[key] = value[0]
+		}
+	}
+	return result
+}
