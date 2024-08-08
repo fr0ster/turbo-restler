@@ -45,6 +45,33 @@ func TestStructToUrlValues(t *testing.T) {
 	assert.Equal(t, expected, actual)
 }
 
+func TestStructToParameterMap(t *testing.T) {
+	type Person struct {
+		Name string `json:"name"`
+		Age  int    `json:"age"`
+	}
+
+	p := Person{
+		Name: "John",
+		Age:  30,
+	}
+
+	params, err := json.StructToParameterMap(p)
+	assert.Nil(t, err)
+
+	expected := json.ParameterMap{
+		"name": "John",
+		"age":  "30",
+	}
+	assert.Equal(t, expected, params)
+
+	ptr := &p
+	params, err = json.StructToParameterMap(ptr)
+	assert.Nil(t, err)
+
+	assert.Equal(t, expected, params)
+}
+
 func TestIsEmptyValue(t *testing.T) {
 	type Person struct {
 		Name   string      `json:"name"`
