@@ -16,7 +16,7 @@ func NewJSON(data []byte) (j *simplejson.Json, err error) {
 	}
 	return j, nil
 } // Функція для перетворення структури в map[string]string формату key=value для подальшого використання в url.Values
-func structToUrlValues(data interface{}, sorted ...bool) (params url.Values, err error) {
+func StructToUrlValues(data interface{}, sorted ...bool) (params url.Values, err error) {
 	if len(sorted) == 0 {
 		sorted = append(sorted, true)
 	}
@@ -62,16 +62,6 @@ func structToUrlValues(data interface{}, sorted ...bool) (params url.Values, err
 	}
 
 	return params, nil
-}
-
-// Функція для перетворення структури в map[string]string формату key=value з відсортованими ключами
-func StructToSortedUrlValues(data interface{}) (params url.Values, err error) {
-	return structToUrlValues(data, true)
-}
-
-// Функція для перетворення структури в map[string]string формату key=value з несортованими ключами
-func StructToUrlValues(data interface{}) (params url.Values, err error) {
-	return structToUrlValues(data, false)
 }
 
 // Функція для перевірки, чи є значення пустим
