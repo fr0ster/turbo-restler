@@ -32,7 +32,7 @@ func TestStructToQueryString(t *testing.T) {
 	assert.Equal(t, "age=30&name=John", queryString)
 }
 
-func TestStructToSortedQueryMap(t *testing.T) {
+func TestStructToSortedUrlValues(t *testing.T) {
 	type Person struct {
 		Name string `json:"name"`
 		Age  int    `json:"age"`
@@ -47,7 +47,7 @@ func TestStructToSortedQueryMap(t *testing.T) {
 	assert.Equal(t, "age=30&name=John", params.Encode())
 }
 
-func TestStructToQueryMap(t *testing.T) {
+func TestStructToUrlValues(t *testing.T) {
 	type Person struct {
 		Name string `json:"name"`
 		Age  int    `json:"age"`
@@ -190,7 +190,7 @@ func TestMarshal(t *testing.T) {
 	assert.Nil(t, err)
 	jsonUrlValues, err := json.UrlValuesToSortedJSON(urlValues)
 	assert.Nil(t, err)
-	byteUrlValues, err := json.UrlValuesToQueryString(urlValues)
+	byteUrlValues, err := json.UrlValuesToString(urlValues)
 	assert.Nil(t, err)
 	jsonPerson, err := json.StructToSortedJSON(person)
 	assert.Nil(t, err)

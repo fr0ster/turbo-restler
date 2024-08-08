@@ -73,7 +73,7 @@ func CallWebAPI(host, path string, method string, params url.Values, sign signat
 		timestamp := int64(time.Nanosecond) * time.Now().UnixNano() / int64(time.Millisecond)
 		params.Set("timestamp", strconv.FormatInt(timestamp, 10))
 		// Створення підпису
-		signedStr, err = json.UrlValuesToQueryString(params)
+		signedStr, err = json.UrlValuesToString(params)
 		if err != nil {
 			err = fmt.Errorf("error marshaling params: %v", err)
 			return

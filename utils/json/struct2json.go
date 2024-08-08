@@ -11,7 +11,7 @@ import (
 
 // Функція для перетворення структури в JSON
 func structToJSON(data interface{}, sorted ...bool) (string, error) {
-	fieldMap, err := structToQueryMap(data, sorted...)
+	fieldMap, err := structToUrlValues(data, sorted...)
 	if err != nil {
 		return "", err
 	}
