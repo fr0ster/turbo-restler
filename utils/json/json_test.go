@@ -1,5 +1,3 @@
-// FILEPATH: /home/oleksii/prj/zero/binance/turbo-restler/utils/json/json_test.go
-
 package json_test
 
 import (
