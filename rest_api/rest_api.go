@@ -11,7 +11,7 @@ import (
 	signature "github.com/fr0ster/turbo-restler/utils/signature"
 )
 
-// Функція для отримання масиву всіх спотових ордерів
+// Функція виклику REST API
 func CallRestAPI(baseUrl, method string, params url.Values, endpoint string, sign signature.Sign) (body []byte, err error) {
 	var (
 		signature   = url.Values{}
