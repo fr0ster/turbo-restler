@@ -16,7 +16,6 @@ import (
 type (
 	WsHost  string
 	WsPath  string
-	APIUrl  string
 	Method  string
 	Request struct {
 		ID     string           `json:"id"`
@@ -66,7 +65,6 @@ func CallWebAPI(
 	host WsHost,
 	path WsPath,
 	method Method,
-	ApiUrl string,
 	params *simplejson.Json,
 	sign signature.Sign) (response *Response, err error) {
 	var (
