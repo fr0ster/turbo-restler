@@ -14,9 +14,13 @@ import (
 )
 
 type (
+	WsHost  string
+	WsPath  string
+	APIUrl  string
+	Method  string
 	Request struct {
 		ID     string           `json:"id"`
-		Method string           `json:"method"`
+		Method Method           `json:"method"`
 		Params *simplejson.Json `json:"params"`
 	}
 	Response struct {
@@ -58,7 +62,13 @@ func parseResponse(data []byte) (*Response, error) {
 }
 
 // Функція виклику Web API
-func CallWebAPI(host, path string, method string, params *simplejson.Json, sign signature.Sign) (response *Response, err error) {
+func CallWebAPI(
+	host WsHost,
+	path WsPath,
+	method Method,
+	ApiUrl string,
+	params *simplejson.Json,
+	sign signature.Sign) (response *Response, err error) {
 	var (
 		signature   string
 		requestBody []byte
@@ -90,7 +100,7 @@ func CallWebAPI(host, path string, method string, params *simplejson.Json, sign 
 	}
 
 	// Підключення до WebSocket
-	u := url.URL{Scheme: "wss", Host: host, Path: path}
+	u := url.URL{Scheme: "wss", Host: string(host), Path: string(path)}
 	conn, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
 	if err != nil {
 		err = fmt.Errorf("error connecting to WebSocket: %v", err)
