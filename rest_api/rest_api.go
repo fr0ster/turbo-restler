@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/bitly/go-simplejson"
+	"github.com/fr0ster/turbo-restler/utils/json"
 	signature "github.com/fr0ster/turbo-restler/utils/signature"
 )
 
@@ -20,7 +21,7 @@ type (
 // Функція виклику REST API
 func CallRestAPI(baseUrl ApiBaseUrl, method HttpMethod, params *simplejson.Json, endpoint EndPoint, sign signature.Sign) (body []byte, err error) {
 	var (
-		signature   []byte
+		signature   string
 		queryString string
 	)
 
@@ -41,10 +42,13 @@ func CallRestAPI(baseUrl ApiBaseUrl, method HttpMethod, params *simplejson.Json,
 		timestamp := int64(time.Nanosecond) * time.Now().UnixNano() / int64(time.Millisecond)
 		params.Set("timestamp", strconv.FormatInt(timestamp, 10))
 		// Створення підпису
-		signature, err = params.Encode()
+		signature, err = json.ConvertSimpleJSONToString(params)
+		if err != nil {
+			err = fmt.Errorf("error encoding params: %v", err)
+			return
+		}
 		params.Set("signature", sign.CreateSignature(string(signature)))
 		// Додавання параметрів до URL
-		signature, err = params.Encode()
 		req.URL.RawQuery = fmt.Sprintf("%s&%s", queryString, signature)
 
 		// Додавання заголовків
