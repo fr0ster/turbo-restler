@@ -1,4 +1,4 @@
-package common
+package web_api
 
 import (
 	encoding_json "encoding/json"
@@ -14,9 +14,9 @@ import (
 
 type (
 	Request struct {
-		ID     string      `json:"id"`
-		Method string      `json:"method"`
-		Params interface{} `json:"params"`
+		ID     string           `json:"id"`
+		Method string           `json:"method"`
+		Params *simplejson.Json `json:"params"`
 	}
 	Response struct {
 		ID         string      `json:"id"`
@@ -42,10 +42,9 @@ type (
 
 func (rq *Request) SetParameter(name string, value string) {
 	if rq.Params == nil {
-		rq.Params = url.Values{}
+		rq.Params = simplejson.New()
 	}
-	params := rq.Params.(url.Values)
-	params.Set(name, value)
+	rq.Params.Set(name, value)
 }
 
 func parseResponse(data []byte) (*Response, error) {
