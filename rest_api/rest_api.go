@@ -21,8 +21,7 @@ type (
 // Функція виклику REST API
 func CallRestAPI(baseUrl ApiBaseUrl, method HttpMethod, params *simplejson.Json, endpoint EndPoint, sign signature.Sign) (body []byte, err error) {
 	var (
-		signature   string
-		queryString string
+		signature string
 	)
 
 	if params != nil && sign == nil {
@@ -49,7 +48,7 @@ func CallRestAPI(baseUrl ApiBaseUrl, method HttpMethod, params *simplejson.Json,
 		}
 		params.Set("signature", sign.CreateSignature(string(signature)))
 		// Додавання параметрів до URL
-		req.URL.RawQuery = fmt.Sprintf("%s&%s", queryString, signature)
+		req.URL.RawQuery, err = json.ConvertSimpleJSONToString(params)
 
 		// Додавання заголовків
 		req.Header.Set("X-MBX-APIKEY", sign.GetAPIKey())
