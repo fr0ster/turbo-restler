@@ -11,8 +11,14 @@ import (
 	signature "github.com/fr0ster/turbo-restler/utils/signature"
 )
 
+type (
+	ApiBaseUrl string
+	EndPoint   string
+	HttpMethod string
+)
+
 // Функція виклику REST API
-func CallRestAPI(baseUrl, method string, params *simplejson.Json, endpoint string, sign signature.Sign) (body []byte, err error) {
+func CallRestAPI(baseUrl ApiBaseUrl, method HttpMethod, params *simplejson.Json, endpoint EndPoint, sign signature.Sign) (body []byte, err error) {
 	var (
 		signature   []byte
 		queryString string
@@ -27,7 +33,7 @@ func CallRestAPI(baseUrl, method string, params *simplejson.Json, endpoint strin
 	client := &http.Client{}
 
 	// Створення нового GET запиту
-	req, err := http.NewRequest(method, baseUrl+endpoint, nil)
+	req, err := http.NewRequest(string(method), string(baseUrl)+string(endpoint), nil)
 	if err != nil {
 		return nil, fmt.Errorf("error creating request: %v", err)
 	}
