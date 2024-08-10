@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/bitly/go-simplejson"
 	"github.com/gorilla/websocket"
 )
 
@@ -15,7 +16,7 @@ var (
 )
 
 // WsHandler handle raw websocket message
-type WsHandler func(message []byte)
+type WsHandler func(message *simplejson.Json)
 
 // ErrHandler handles errors
 type ErrHandler func(err error)
@@ -65,7 +66,14 @@ func StartStreamer(endpoint string, handler WsHandler, errHandler ErrHandler, we
 				}
 				return
 			}
-			handler(message)
+			json, err := simplejson.NewJson(message)
+			if err != nil {
+				if !silent {
+					errHandler(err)
+				}
+				return
+			}
+			handler(json)
 		}
 	}()
 	return
