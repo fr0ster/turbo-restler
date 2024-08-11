@@ -46,14 +46,14 @@ func CallRestAPI(baseUrl ApiBaseUrl, method HttpMethod, params *simplejson.Json,
 		parameters = params
 		timestamp := int64(time.Nanosecond) * time.Now().UnixNano() / int64(time.Millisecond)
 		parameters.Set("timestamp", strconv.FormatInt(timestamp, 10))
-		// Створення підпису
-		signature, err = json.ConvertSimpleJSONToString(parameters)
-		if err != nil {
-			err = fmt.Errorf("error encoding params: %v", err)
-			return
-		}
-		parameters.Set("signature", sign.CreateSignature(string(signature)))
 	}
+	// Створення підпису
+	signature, err = json.ConvertSimpleJSONToString(parameters)
+	if err != nil {
+		err = fmt.Errorf("error encoding params: %v", err)
+		return
+	}
+	parameters.Set("signature", sign.CreateSignature(string(signature)))
 	// Додавання параметрів до URL
 	req.URL.RawQuery, err = json.ConvertSimpleJSONToString(parameters)
 
