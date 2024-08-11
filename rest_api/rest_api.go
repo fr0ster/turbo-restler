@@ -1,4 +1,4 @@
-package common
+package rest_api
 
 import (
 	"fmt"
