@@ -21,10 +21,11 @@ type (
 // Функція виклику REST API
 func CallRestAPI(baseUrl ApiBaseUrl, method HttpMethod, params *simplejson.Json, endpoint EndPoint, sign signature.Sign) (response *simplejson.Json, err error) {
 	var (
-		signature string
+		signature  string
+		parameters *simplejson.Json
 	)
 
-	if !((params == nil && sign == nil) || (params != nil && sign != nil)) {
+	if params == nil && sign == nil {
 		err = fmt.Errorf("sign is required")
 		return
 	}
@@ -37,25 +38,26 @@ func CallRestAPI(baseUrl ApiBaseUrl, method HttpMethod, params *simplejson.Json,
 	if err != nil {
 		return nil, fmt.Errorf("error creating request: %v", err)
 	}
-	if params != nil && sign != nil {
-		timestamp := int64(time.Nanosecond) * time.Now().UnixNano() / int64(time.Millisecond)
-		params.Set("timestamp", strconv.FormatInt(timestamp, 10))
-		// Створення підпису
-		signature, err = json.ConvertSimpleJSONToString(params)
-		if err != nil {
-			err = fmt.Errorf("error encoding params: %v", err)
-			return
-		}
-		params.Set("signature", sign.CreateSignature(string(signature)))
-		// Додавання параметрів до URL
-		req.URL.RawQuery, err = json.ConvertSimpleJSONToString(params)
-
-		// Додавання заголовків
-		req.Header.Set("X-MBX-APIKEY", sign.GetAPIKey())
-	} else if sign != nil {
-		// Додавання заголовків
-		req.Header.Set("X-MBX-APIKEY", sign.GetAPIKey())
+	if params != nil {
+		parameters = simplejson.New()
+		parameters.Set("apiKey", sign.GetAPIKey())
+	} else {
+		parameters = params
 	}
+	timestamp := int64(time.Nanosecond) * time.Now().UnixNano() / int64(time.Millisecond)
+	parameters.Set("timestamp", strconv.FormatInt(timestamp, 10))
+	// Створення підпису
+	signature, err = json.ConvertSimpleJSONToString(params)
+	if err != nil {
+		err = fmt.Errorf("error encoding params: %v", err)
+		return
+	}
+	parameters.Set("signature", sign.CreateSignature(string(signature)))
+	// Додавання параметрів до URL
+	req.URL.RawQuery, err = json.ConvertSimpleJSONToString(params)
+
+	// Додавання заголовків
+	req.Header.Set("X-MBX-APIKEY", sign.GetAPIKey())
 
 	// Виконання запиту
 	resp, err := client.Do(req)
