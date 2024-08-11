@@ -47,7 +47,7 @@ func CallRestAPI(baseUrl ApiBaseUrl, method HttpMethod, params *simplejson.Json,
 	timestamp := int64(time.Nanosecond) * time.Now().UnixNano() / int64(time.Millisecond)
 	parameters.Set("timestamp", strconv.FormatInt(timestamp, 10))
 	// Створення підпису
-	signature, err = json.ConvertSimpleJSONToString(params)
+	signature, err = json.ConvertSimpleJSONToString(parameters)
 	if err != nil {
 		err = fmt.Errorf("error encoding params: %v", err)
 		return
