@@ -39,22 +39,20 @@ func CallRestAPI(baseUrl ApiBaseUrl, method HttpMethod, params *simplejson.Json,
 		return nil, fmt.Errorf("error creating request: %v", err)
 	}
 	if params == nil {
-		// Додавання параметрів до URL коли вони відсутні
-		parameters = simplejson.New()
-	} else {
 		parameters = params
+		// Додавання параметрів до URL коли вони відсутні
 		timestamp := int64(time.Nanosecond) * time.Now().UnixNano() / int64(time.Millisecond)
 		parameters.Set("timestamp", strconv.FormatInt(timestamp, 10))
+		// Створення підпису
+		signature, err = json.ConvertSimpleJSONToString(params)
+		if err != nil {
+			err = fmt.Errorf("error encoding params: %v", err)
+			return
+		}
+		parameters.Set("signature", sign.CreateSignature(string(signature)))
+		// Додавання параметрів до URL
+		req.URL.RawQuery, err = json.ConvertSimpleJSONToString(parameters)
 	}
-	// Створення підпису
-	signature, err = json.ConvertSimpleJSONToString(parameters)
-	if err != nil {
-		err = fmt.Errorf("error encoding params: %v", err)
-		return
-	}
-	parameters.Set("signature", sign.CreateSignature(string(signature)))
-	// Додавання параметрів до URL
-	req.URL.RawQuery, err = json.ConvertSimpleJSONToString(parameters)
 
 	// Додавання заголовків
 	req.Header.Set("X-MBX-APIKEY", sign.GetAPIKey())
