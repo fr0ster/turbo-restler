@@ -39,6 +39,7 @@ func CallRestAPI(baseUrl ApiBaseUrl, method HttpMethod, params *simplejson.Json,
 		return nil, fmt.Errorf("error creating request: %v", err)
 	}
 	if params == nil {
+		// Додавання параметрів до URL коли вони відсутні
 		parameters = simplejson.New()
 		parameters.Set("apiKey", sign.GetAPIKey())
 	} else {
