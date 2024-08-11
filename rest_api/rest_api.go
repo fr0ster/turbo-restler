@@ -38,7 +38,7 @@ func CallRestAPI(baseUrl ApiBaseUrl, method HttpMethod, params *simplejson.Json,
 	if err != nil {
 		return nil, fmt.Errorf("error creating request: %v", err)
 	}
-	if params == nil {
+	if params != nil {
 		parameters = params
 		// Додавання параметрів до URL коли вони відсутні
 		timestamp := int64(time.Nanosecond) * time.Now().UnixNano() / int64(time.Millisecond)
