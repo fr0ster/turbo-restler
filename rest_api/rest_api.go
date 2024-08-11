@@ -24,7 +24,7 @@ func CallRestAPI(baseUrl ApiBaseUrl, method HttpMethod, params *simplejson.Json,
 		signature string
 	)
 
-	if params != nil && sign == nil {
+	if !((params == nil && sign == nil) || (params != nil && sign != nil)) {
 		err = fmt.Errorf("sign is required")
 		return
 	}
@@ -37,7 +37,7 @@ func CallRestAPI(baseUrl ApiBaseUrl, method HttpMethod, params *simplejson.Json,
 	if err != nil {
 		return nil, fmt.Errorf("error creating request: %v", err)
 	}
-	if params != nil {
+	if params != nil && sign != nil {
 		timestamp := int64(time.Nanosecond) * time.Now().UnixNano() / int64(time.Millisecond)
 		params.Set("timestamp", strconv.FormatInt(timestamp, 10))
 		// Створення підпису
