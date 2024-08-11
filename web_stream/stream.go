@@ -2,9 +2,11 @@ package futures_api
 
 import (
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/bitly/go-simplejson"
+	"github.com/fr0ster/turbo-restler/web_api"
 	"github.com/gorilla/websocket"
 )
 
@@ -21,17 +23,24 @@ type WsHandler func(message *simplejson.Json)
 // ErrHandler handles errors
 type ErrHandler func(err error)
 
-func StartStreamer(endpoint string, handler WsHandler, errHandler ErrHandler, websocketKeepalive ...bool) (doneC, stopC chan struct{}, err error) {
+func StartStreamer(
+	host web_api.WsHost,
+	path web_api.WsPath,
+	handler WsHandler,
+	errHandler ErrHandler,
+	websocketKeepalive ...bool) (doneC, stopC chan struct{}, err error) {
 	if len(websocketKeepalive) > 0 && websocketKeepalive[0] {
 		WebsocketKeepalive = websocketKeepalive[0]
 	}
+
+	// Підключення до WebSocket
 	Dialer := websocket.Dialer{
 		Proxy:             http.ProxyFromEnvironment,
 		HandshakeTimeout:  45 * time.Second,
 		EnableCompression: false,
 	}
-
-	c, _, err := Dialer.Dial(endpoint, nil)
+	u := url.URL{Scheme: "wss", Host: string(host), Path: string(path)}
+	c, _, err := Dialer.Dial(u.String(), nil)
 	if err != nil {
 		return nil, nil, err
 	}

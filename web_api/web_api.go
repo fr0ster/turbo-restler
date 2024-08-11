@@ -3,6 +3,7 @@ package web_api
 import (
 	encoding_json "encoding/json"
 	"fmt"
+	"net/http"
 	"net/url"
 	"time"
 
@@ -99,7 +100,12 @@ func CallWebAPI(
 
 	// Підключення до WebSocket
 	u := url.URL{Scheme: "wss", Host: string(host), Path: string(path)}
-	conn, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
+	Dialer := websocket.Dialer{
+		Proxy:             http.ProxyFromEnvironment,
+		HandshakeTimeout:  45 * time.Second,
+		EnableCompression: false,
+	}
+	conn, _, err := Dialer.Dial(u.String(), nil)
 	if err != nil {
 		err = fmt.Errorf("error connecting to WebSocket: %v", err)
 		return
