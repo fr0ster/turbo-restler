@@ -19,7 +19,7 @@ type (
 )
 
 // Функція виклику REST API
-func CallRestAPI(baseUrl ApiBaseUrl, method HttpMethod, params *simplejson.Json, endpoint EndPoint, sign signature.Sign) (body []byte, err error) {
+func CallRestAPI(baseUrl ApiBaseUrl, method HttpMethod, params *simplejson.Json, endpoint EndPoint, sign signature.Sign) (response *simplejson.Json, err error) {
 	var (
 		signature string
 	)
@@ -71,6 +71,7 @@ func CallRestAPI(baseUrl ApiBaseUrl, method HttpMethod, params *simplejson.Json,
 	}
 
 	// Читання тіла відповіді
-	body, err = io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	response, err = simplejson.NewJson(body)
 	return
 }
