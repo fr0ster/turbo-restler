@@ -14,3 +14,7 @@ require (
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+retract (
+    [v0.1.0, v0.1.41] // Retract all from v0.1.0 to v0.1.41, this tags were made by mistake
+)
