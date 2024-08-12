@@ -76,7 +76,7 @@ func StartStreamer(
 			json, err := simplejson.NewJson(message)
 			if err != nil {
 				json = simplejson.New()
-				json.Set("message", message)
+				json.Set("message", string(message))
 			}
 			handler(json)
 		}
