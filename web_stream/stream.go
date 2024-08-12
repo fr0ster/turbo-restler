@@ -1,8 +1,7 @@
-package futures_api
+package web_stream
 
 import (
 	"net/http"
-	"net/url"
 	"time"
 
 	"github.com/bitly/go-simplejson"
@@ -39,8 +38,7 @@ func StartStreamer(
 		HandshakeTimeout:  45 * time.Second,
 		EnableCompression: false,
 	}
-	u := url.URL{Scheme: "wss", Host: string(host), Path: string(path)}
-	c, _, err := Dialer.Dial(u.String(), nil)
+	c, _, err := Dialer.Dial("wss://"+string(host)+string(path), nil)
 	if err != nil {
 		return nil, nil, err
 	}
