@@ -2,13 +2,13 @@ package rest_api
 
 import (
 	"fmt"
-	"io"
+	"io/ioutil"
 	"net/http"
+	"net/url"
 	"strconv"
 	"time"
 
 	"github.com/bitly/go-simplejson"
-	"github.com/fr0ster/turbo-restler/utils/json"
 	"github.com/fr0ster/turbo-restler/utils/signature"
 )
 
@@ -20,57 +20,62 @@ type (
 
 // Функція виклику REST API
 func CallRestAPI(baseUrl ApiBaseUrl, method HttpMethod, params *simplejson.Json, endpoint EndPoint, sign signature.Sign) (response *simplejson.Json, err error) {
-	var (
-		signature  string
-		parameters *simplejson.Json
-	)
+	// Construct the URL
+	apiUrl := string(baseUrl) + string(endpoint)
 
-	if params == nil && sign == nil {
-		err = fmt.Errorf("sign is required")
-		return
+	// Prepare the query parameters
+	v := url.Values{}
+	if params != nil {
+		for key, value := range params.MustMap() {
+			v.Set(key, fmt.Sprintf("%v", value))
+		}
 	}
 
-	// Створення HTTP клієнта
-	client := &http.Client{}
+	// Add timestamp to the query parameters
+	timestamp := strconv.FormatInt(time.Now().UnixNano()/int64(time.Millisecond), 10)
+	v.Set("timestamp", timestamp)
 
-	// Створення нового GET запиту
-	req, err := http.NewRequest(string(method), string(baseUrl)+string(endpoint), nil)
+	// Create the signature
+	queryString := v.Encode()
+	signature := sign.CreateSignature(queryString)
+	v.Set("signature", signature)
+
+	// Create the full URL with query parameters
+	fullUrl := apiUrl + "?" + v.Encode()
+
+	// Prepare the HTTP request
+	req, err := http.NewRequest(string(method), fullUrl, nil)
 	if err != nil {
 		return nil, fmt.Errorf("error creating request: %v", err)
 	}
-	if params == nil {
-		parameters = simplejson.New()
-	} else {
-		parameters = params
-	}
-	// Додавання параметрів до URL коли вони відсутні
-	timestamp := int64(time.Nanosecond) * time.Now().UnixNano() / int64(time.Millisecond)
-	parameters.Set("timestamp", strconv.FormatInt(timestamp, 10))
-	// Створення підпису та додавання параметрів до URL
-	req.URL.RawQuery, err = json.ConvertSimpleJSONToString(parameters)
-	if err != nil {
-		return nil, fmt.Errorf("error converting parameters to string: %v", err)
-	}
-	req.URL.RawQuery = fmt.Sprintf("%s&signature=%s", req.URL.RawQuery, sign.CreateSignature(signature))
 
-	// Додавання заголовків
+	// Add headers
 	req.Header.Set("X-MBX-APIKEY", sign.GetAPIKey())
 
-	// Виконання запиту
+	// Execute the request
+	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("error making request: %v", err)
 	}
 	defer resp.Body.Close()
 
-	// Перевірка статусу відповіді
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("error: received non-200 response code: %d, body: %s", resp.StatusCode, string(body))
+	// Read the response body
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("error reading response: %v", err)
 	}
 
-	// Читання тіла відповіді
-	body, err := io.ReadAll(resp.Body)
+	// Parse the response body as JSON
 	response, err = simplejson.NewJson(body)
-	return
+	if err != nil {
+		return nil, fmt.Errorf("error parsing JSON response: %v", err)
+	}
+
+	// Check for HTTP errors
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("HTTP error: %s", resp.Status)
+	}
+
+	return response, nil
 }
