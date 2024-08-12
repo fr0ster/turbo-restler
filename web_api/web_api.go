@@ -14,11 +14,20 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+const (
+	// WsScheme is a scheme for WebSocket
+	SchemeWSS   WsScheme = "wss"
+	SchemeWS    WsScheme = "ws"
+	SchemeHTTP  WsScheme = "http"
+	SchemeHTTPS WsScheme = "https"
+)
+
 type (
-	WsHost  string
-	WsPath  string
-	Method  string
-	Request struct {
+	WsScheme string
+	WsHost   string
+	WsPath   string
+	Method   string
+	Request  struct {
 		ID     string           `json:"id"`
 		Method Method           `json:"method"`
 		Params *simplejson.Json `json:"params"`

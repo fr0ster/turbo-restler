@@ -13,7 +13,7 @@ var (
 	// WebsocketTimeout is an interval for sending ping/pong messages if WebsocketKeepalive is enabled
 	WebsocketTimeout = time.Second * 60
 	// WebsocketKeepalive enables sending ping/pong messages to check the connection stability
-	WebsocketKeepalive = false
+	WebsocketKeepalive = true
 )
 
 // WsHandler handle raw websocket message
@@ -27,9 +27,9 @@ func StartStreamer(
 	path web_api.WsPath,
 	handler WsHandler,
 	errHandler ErrHandler,
-	websocketKeepalive ...bool) (doneC, stopC chan struct{}, err error) {
-	if len(websocketKeepalive) > 0 && websocketKeepalive[0] {
-		WebsocketKeepalive = websocketKeepalive[0]
+	scheme ...web_api.WsScheme) (doneC, stopC chan struct{}, err error) {
+	if len(scheme) == 0 {
+		scheme = append(scheme, web_api.SchemeWSS)
 	}
 
 	// Підключення до WebSocket
@@ -38,7 +38,7 @@ func StartStreamer(
 		HandshakeTimeout:  45 * time.Second,
 		EnableCompression: false,
 	}
-	c, _, err := Dialer.Dial("wss://"+string(host)+string(path), nil)
+	c, _, err := Dialer.Dial(string(scheme[0])+"://"+string(host)+string(path), nil)
 	if err != nil {
 		return nil, nil, err
 	}
