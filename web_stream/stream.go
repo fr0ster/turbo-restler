@@ -55,7 +55,6 @@ func (ws *WebStream) Start() (doneC, stopC chan struct{}, err error) {
 				silent = true
 			case <-doneC:
 			}
-			ws.stream.Socket().Close()
 		}()
 		for {
 			_, message, err := ws.stream.Socket().ReadMessage()
