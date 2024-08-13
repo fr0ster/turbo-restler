@@ -43,3 +43,15 @@ func TestConvertSimpleJSONToString(t *testing.T) {
 		assert.Equal(t, expected, result)
 	}()
 }
+
+func TestParams(t *testing.T) {
+	func() {
+		params := simplejson.New()
+		params.Set("key1", "value1")
+		params.Set("key2", "value2")
+		expected := `{"key1":"value1","key2":"value2"}`
+		result, err := params.MarshalJSON()
+		assert.Nil(t, err)
+		assert.Equal(t, expected, string(result))
+	}()
+}

@@ -1,7 +1,6 @@
 package web_stream
 
 import (
-	"net/http"
 	"time"
 
 	"github.com/bitly/go-simplejson"
@@ -9,40 +8,35 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-var (
-	// WebsocketTimeout is an interval for sending ping/pong messages if WebsocketKeepalive is enabled
-	WebsocketTimeout = time.Second * 60
-	// WebsocketKeepalive enables sending ping/pong messages to check the connection stability
-	WebsocketKeepalive = true
+type (
+	// WsSubscribe handle subscribe messages
+	WsSubscribe func() (*simplejson.Json, error)
+
+	// WsUnsubscribe handle unsubscribe messages
+	WsUnsubscribe func() (*simplejson.Json, error)
+
+	// WsHandler handle raw websocket message
+	WsHandler func(message *simplejson.Json)
+
+	// ErrHandler handles errors
+	ErrHandler func(err error)
+	WebStream  struct {
+		stream             *web_api.WebApi
+		subscribe          WsSubscribe
+		unsubscribe        WsUnsubscribe
+		handler            WsHandler
+		errHandler         ErrHandler
+		websocketTimeout   time.Duration
+		websocketKeepalive bool
+	}
 )
 
-// WsHandler handle raw websocket message
-type WsHandler func(message *simplejson.Json)
+func (ws *WebStream) Socket() *web_api.WebApi {
+	return ws.stream
+}
 
-// ErrHandler handles errors
-type ErrHandler func(err error)
-
-func StartStreamer(
-	host web_api.WsHost,
-	path web_api.WsPath,
-	handler WsHandler,
-	errHandler ErrHandler,
-	scheme ...web_api.WsScheme) (doneC, stopC chan struct{}, err error) {
-	if len(scheme) == 0 {
-		scheme = append(scheme, web_api.SchemeWSS)
-	}
-
-	// Підключення до WebSocket
-	Dialer := websocket.Dialer{
-		Proxy:             http.ProxyFromEnvironment,
-		HandshakeTimeout:  45 * time.Second,
-		EnableCompression: false,
-	}
-	c, _, err := Dialer.Dial(string(scheme[0])+"://"+string(host)+string(path), nil)
-	if err != nil {
-		return nil, nil, err
-	}
-	c.SetReadLimit(655350)
+func (ws *WebStream) Start() (doneC, stopC chan struct{}, err error) {
+	ws.stream.Socket().SetReadLimit(655350)
 	doneC = make(chan struct{})
 	stopC = make(chan struct{})
 	go func() {
@@ -50,8 +44,8 @@ func StartStreamer(
 		// websocket.Conn.ReadMessage or when the stopC channel is
 		// closed by the client.
 		defer close(doneC)
-		if WebsocketKeepalive {
-			keepAlive(c, WebsocketTimeout)
+		if ws.websocketKeepalive {
+			ws.keepAlive(ws.websocketTimeout)
 		}
 		// Wait for the stopC channel to be closed.  We do that in a
 		// separate goroutine because ReadMessage is a blocking
@@ -63,32 +57,39 @@ func StartStreamer(
 				silent = true
 			case <-doneC:
 			}
-			c.Close()
+			if ws.unsubscribe != nil {
+				_, err = ws.unsubscribe()
+			}
+			ws.stream.Socket().Close()
 		}()
 		for {
-			_, message, err := c.ReadMessage()
+			_, message, err := ws.stream.Socket().ReadMessage()
 			if err != nil {
 				if !silent {
-					errHandler(err)
+					ws.errHandler(err)
 				}
 				return
 			}
-			json, err := simplejson.NewJson(message)
+			json, err := simplejson.NewJson([]byte(message))
 			if err != nil {
 				json = simplejson.New()
 				json.Set("message", string(message))
 			}
-			handler(json)
+			ws.handler(json)
 		}
 	}()
+	if ws.subscribe != nil {
+		_, err = ws.subscribe()
+	}
+
 	return
 }
 
-func keepAlive(c *websocket.Conn, timeout time.Duration) {
+func (ws *WebStream) keepAlive(timeout time.Duration) {
 	ticker := time.NewTicker(timeout)
 
 	lastResponse := time.Now()
-	c.SetPongHandler(func(msg string) error {
+	ws.stream.Socket().SetPongHandler(func(msg string) error {
 		lastResponse = time.Now()
 		return nil
 	})
@@ -97,15 +98,48 @@ func keepAlive(c *websocket.Conn, timeout time.Duration) {
 		defer ticker.Stop()
 		for {
 			deadline := time.Now().Add(10 * time.Second)
-			err := c.WriteControl(websocket.PingMessage, []byte{}, deadline)
+			err := ws.stream.Socket().WriteControl(websocket.PingMessage, []byte{}, deadline)
 			if err != nil {
 				return
 			}
 			<-ticker.C
 			if time.Since(lastResponse) > timeout {
-				c.Close()
+				ws.stream.Socket().Close()
 				return
 			}
 		}
 	}()
+}
+
+func New(
+	host web_api.WsHost,
+	path web_api.WsPath,
+	subscribe func(*WebStream) WsSubscribe,
+	unsubscribe func(*WebStream) WsUnsubscribe,
+	handler WsHandler,
+	errHandler ErrHandler,
+	websocketKeepalive bool,
+	websocketTimeout time.Duration,
+	scheme ...web_api.WsScheme) (stream *WebStream, err error) {
+	if len(scheme) == 0 {
+		scheme = append(scheme, web_api.SchemeWSS)
+	}
+	socket, err := web_api.New(host, path, scheme[0])
+	if err != nil {
+		return
+	}
+	stream = &WebStream{
+		stream:             socket,
+		handler:            handler,
+		errHandler:         errHandler,
+		websocketTimeout:   websocketTimeout,
+		websocketKeepalive: websocketKeepalive,
+	}
+	if subscribe != nil {
+		stream.subscribe = subscribe(stream)
+	}
+	if unsubscribe != nil {
+		stream.unsubscribe = unsubscribe(stream)
+	}
+	return
 }
