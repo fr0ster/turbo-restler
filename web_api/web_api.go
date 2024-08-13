@@ -3,7 +3,6 @@ package web_api
 import (
 	"fmt"
 	"net/http"
-	"net/url"
 	"time"
 
 	"github.com/bitly/go-simplejson"
@@ -79,13 +78,12 @@ func New(
 	if len(scheme) == 0 {
 		scheme = append(scheme, SchemeWSS)
 	}
-	u := url.URL{Scheme: string(scheme[0]), Host: string(host), Path: string(path)}
 	Dialer := websocket.Dialer{
 		Proxy:             http.ProxyFromEnvironment,
 		HandshakeTimeout:  45 * time.Second,
 		EnableCompression: false,
 	}
-	conn, _, err := Dialer.Dial(u.String(), nil)
+	conn, _, err := Dialer.Dial(string(scheme[0])+"://"+string(host)+string(path), nil)
 	if err != nil {
 		err = fmt.Errorf("error connecting to WebSocket: %v", err)
 		return
