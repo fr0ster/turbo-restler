@@ -60,7 +60,7 @@ func (ws *WebStream) Start() (doneC, stopC chan struct{}, err error) {
 		for {
 			_, message, err := ws.stream.Socket().ReadMessage()
 			if err != nil {
-				if !silent {
+				if !silent && ws.errHandler != nil {
 					ws.errHandler(err)
 				}
 				return
@@ -70,7 +70,9 @@ func (ws *WebStream) Start() (doneC, stopC chan struct{}, err error) {
 				json = simplejson.New()
 				json.Set("message", string(message))
 			}
-			ws.handler(json)
+			if ws.handler != nil {
+				ws.handler(json)
+			}
 		}
 	}()
 
