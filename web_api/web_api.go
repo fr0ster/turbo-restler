@@ -71,6 +71,10 @@ func (wa *WebApi) Socket() *websocket.Conn {
 	return wa.socket
 }
 
+func (wa *WebApi) Close() error {
+	return wa.socket.Close()
+}
+
 func New(
 	host WsHost,
 	path WsPath,
