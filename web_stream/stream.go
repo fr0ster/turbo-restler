@@ -22,8 +22,6 @@ type (
 	ErrHandler func(err error)
 	WebStream  struct {
 		stream             *web_api.WebApi
-		subscribe          WsSubscribe
-		unsubscribe        WsUnsubscribe
 		handler            WsHandler
 		errHandler         ErrHandler
 		websocketTimeout   time.Duration
@@ -57,9 +55,6 @@ func (ws *WebStream) Start() (doneC, stopC chan struct{}, err error) {
 				silent = true
 			case <-doneC:
 			}
-			if ws.unsubscribe != nil {
-				_, err = ws.unsubscribe()
-			}
 			ws.stream.Socket().Close()
 		}()
 		for {
@@ -78,9 +73,6 @@ func (ws *WebStream) Start() (doneC, stopC chan struct{}, err error) {
 			ws.handler(json)
 		}
 	}()
-	if ws.subscribe != nil {
-		_, err = ws.subscribe()
-	}
 
 	return
 }
@@ -114,8 +106,6 @@ func (ws *WebStream) keepAlive(timeout time.Duration) {
 func New(
 	host web_api.WsHost,
 	path web_api.WsPath,
-	subscribe func(*WebStream) WsSubscribe,
-	unsubscribe func(*WebStream) WsUnsubscribe,
 	handler WsHandler,
 	errHandler ErrHandler,
 	websocketKeepalive bool,
@@ -134,12 +124,6 @@ func New(
 		errHandler:         errHandler,
 		websocketTimeout:   websocketTimeout,
 		websocketKeepalive: websocketKeepalive,
-	}
-	if subscribe != nil {
-		stream.subscribe = subscribe(stream)
-	}
-	if unsubscribe != nil {
-		stream.unsubscribe = unsubscribe(stream)
 	}
 	return
 }

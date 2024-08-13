@@ -13,6 +13,10 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+const (
+	timeOut = 1 * time.Second
+)
+
 // Mock handler for WebSocket messages
 func mockHandler(message *simplejson.Json) {
 	logrus.Infof("Received message: %+v", message)
@@ -59,8 +63,6 @@ func TestStartLocalStreamer(t *testing.T) {
 	stream, err := web_stream.New(
 		web_api.WsHost("localhost:8080"),
 		web_api.WsPath("/stream"),
-		nil,
-		nil,
 		mockHandler,
 		mockErrHandler,
 		true,
@@ -75,7 +77,7 @@ func TestStartLocalStreamer(t *testing.T) {
 	assert.NotNil(t, stopC)
 
 	// Stop the streamer after some time
-	time.Sleep(1 * time.Second)
+	time.Sleep(timeOut)
 	close(stopC)
 }
 func TestStartBinanceStreamer(t *testing.T) {
@@ -83,8 +85,6 @@ func TestStartBinanceStreamer(t *testing.T) {
 	stream, err := web_stream.New(
 		web_api.WsHost("stream.binance.com:9443"),
 		web_api.WsPath("/ws/btcusdt@depth"),
-		nil,
-		nil,
 		mockHandler,
 		mockErrHandler,
 		true,
@@ -98,7 +98,7 @@ func TestStartBinanceStreamer(t *testing.T) {
 	assert.NotNil(t, stopC)
 
 	// Stop the streamer after some time
-	time.Sleep(1 * time.Second)
+	time.Sleep(timeOut)
 	close(stopC)
 }
 func TestStartBybitStreamer(t *testing.T) {
@@ -106,19 +106,6 @@ func TestStartBybitStreamer(t *testing.T) {
 	stream, err := web_stream.New(
 		web_api.WsHost("stream.bybit.com"),
 		web_api.WsPath("/v5/public/spot"),
-		func(stream *web_stream.WebStream) web_stream.WsSubscribe {
-			return func() (response *simplejson.Json, err error) {
-				request := simplejson.New()
-				request.Set("req_id", "1001")
-				request.Set("op", "subscribe")
-				args := []interface{}{"orderbook.1.BTCUSDT"}
-				request.Set("args", args)
-
-				response, err = stream.Socket().Call(request)
-				return
-			}
-		},
-		nil,
 		mockHandler,
 		mockErrHandler,
 		true,
@@ -131,8 +118,21 @@ func TestStartBybitStreamer(t *testing.T) {
 	assert.NotNil(t, doneC)
 	assert.NotNil(t, stopC)
 
+	subscribe := func(stream *web_stream.WebStream) (response *simplejson.Json, err error) {
+		request := simplejson.New()
+		request.Set("req_id", "1001")
+		request.Set("op", "subscribe")
+		args := []interface{}{"orderbook.1.BTCUSDT"}
+		request.Set("args", args)
+
+		response, err = stream.Socket().Call(request)
+		return
+	}
+
+	subscribe(stream)
+
 	// Stop the streamer after some time
-	time.Sleep(1 * time.Second)
+	time.Sleep(timeOut)
 	close(stopC)
 }
 func TestStartKrakenStreamer(t *testing.T) {
@@ -140,8 +140,6 @@ func TestStartKrakenStreamer(t *testing.T) {
 	stream, err := web_stream.New(
 		web_api.WsHost("ws.kraken.com"),
 		web_api.WsPath("/"),
-		nil,
-		nil,
 		mockHandler,
 		mockErrHandler,
 		true,
@@ -155,6 +153,6 @@ func TestStartKrakenStreamer(t *testing.T) {
 	assert.NotNil(t, stopC)
 
 	// Stop the streamer after some time
-	time.Sleep(5 * time.Second)
+	time.Sleep(timeOut)
 	close(stopC)
 }
