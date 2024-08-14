@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/bitly/go-simplejson"
-	"github.com/fr0ster/turbo-restler/utils/signature"
+	"github.com/fr0ster/turbo-signer/signature"
 )
 
 type (
@@ -19,7 +19,8 @@ type (
 )
 
 // Функція виклику REST API
-func CallRestAPI(baseUrl ApiBaseUrl, method HttpMethod, params *simplejson.Json, endpoint EndPoint, sign signature.Sign) (response *simplejson.Json, err error) {
+func CallRestAPI(baseUrl ApiBaseUrl, method HttpMethod, params *simplejson.Json, endpoint EndPoint, sign signature.Sign) (
+	response *simplejson.Json, err error) {
 	// Construct the URL
 	apiUrl := string(baseUrl) + string(endpoint)
 

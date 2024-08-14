@@ -6,8 +6,6 @@ import (
 	"time"
 
 	"github.com/bitly/go-simplejson"
-	"github.com/fr0ster/turbo-restler/utils/json"
-	"github.com/fr0ster/turbo-restler/utils/signature"
 	"github.com/gorilla/websocket"
 )
 
@@ -27,19 +25,6 @@ type (
 		socket *websocket.Conn
 	}
 )
-
-func (wa *WebApi) SignParameters(
-	params *simplejson.Json,
-	sign signature.Sign) (*simplejson.Json, error) {
-	params.Set("timestamp", int64(time.Nanosecond)*time.Now().UnixNano()/int64(time.Millisecond))
-	// Створення підпису
-	signature, err := json.ConvertSimpleJSONToString(params)
-	if err != nil {
-		return nil, fmt.Errorf("error encoding params: %v", err)
-	}
-	params.Set("signature", sign.CreateSignature(signature))
-	return params, nil
-}
 
 // Функція виклику Web API
 func (wa *WebApi) Call(request *simplejson.Json) (response *simplejson.Json, err error) {

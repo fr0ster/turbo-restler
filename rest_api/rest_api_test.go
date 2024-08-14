@@ -12,7 +12,7 @@ import (
 	"github.com/bitly/go-simplejson"
 
 	rest_api "github.com/fr0ster/turbo-restler/rest_api"
-	signature "github.com/fr0ster/turbo-restler/utils/signature"
+	signature "github.com/fr0ster/turbo-signer/signature"
 
 	"github.com/stretchr/testify/assert"
 )

@@ -3,6 +3,10 @@ github.com/bitly/go-simplejson v0.5.1/go.mod h1:YOPVLzCfwK14b4Sff3oP1AmGhI9T9Vsg
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
+github.com/fr0ster/turbo-signer v0.0.0-20240814074235-571bf46e29af h1:bs6++x+Pavf0t2s/mD8Tu6tYksmrU1f8ScFYR8t4twg=
+github.com/fr0ster/turbo-signer v0.0.0-20240814074235-571bf46e29af/go.mod h1:Ro6V87xJa3hM2nfrrOuTa+15uSIlR93hRdl3SPSO0As=
+github.com/fr0ster/turbo-signer v0.0.0-20240814075010-ef27de27a887 h1:YgX/KWi/AFpn1hT4tHMtEp2opXTxrEFMBYYCoCvC9As=
+github.com/fr0ster/turbo-signer v0.0.0-20240814075010-ef27de27a887/go.mod h1:bRyp8RnLzmVP9dmtVCTjUAVbeN2VOjtcBjdKJm2pSu4=
 github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
 github.com/google/uuid v1.6.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
 github.com/gorilla/websocket v1.5.3 h1:saDtZ6Pbx/0u+bgYQ3q96pZgCzfhKXGPqt7kZ72aNNg=
