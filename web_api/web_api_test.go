@@ -107,3 +107,52 @@ func TestWebApi(t *testing.T) {
 	time.Sleep(1 * time.Second)
 	logrus.Println("Server stopped")
 }
+
+func TestWebApi_Send(t *testing.T) {
+	go func() {
+		err := startWebSocketServer()
+		if err != nil {
+			log.Fatal("Error starting server:", err)
+		}
+	}()
+	// Create a new WebApi instance
+	api, err := web_api.New(web_api.WsHost("localhost:8080"), web_api.WsPath("/ws"), web_api.SchemeWS)
+	if err != nil {
+		log.Fatal("New error:", err)
+	}
+	// Example usage of the refactored functions
+	// Create a sample request JSON
+	request := simplejson.New()
+	request.Set("id", 1)
+	request.Set("method", "with-params")
+	request.Set("params", "Hello, World!")
+	// Відправка запиту з параметрами в simplejson
+	err = api.Send(request)
+	if err != nil {
+		log.Fatal("Send error:", err)
+	}
+
+	// Читання відповіді в simplejson
+	response, err := api.Read()
+	if err != nil {
+		log.Fatal("Read error:", err)
+	}
+	fmt.Println("Response data:", response)
+
+	// Відправка запиту з параметрами в JSON
+	requestBody := api.Serialize(request)
+	err = api.Socket().WriteMessage(websocket.TextMessage, requestBody)
+	if err != nil {
+		logrus.Errorf("error sending message: %v", err)
+		return
+	}
+
+	// Десеріалізація відповіді JSON в simplejson
+	_, body, err := api.Socket().ReadMessage()
+	if err != nil {
+		logrus.Errorf("error reading message: %v", err)
+		return
+	}
+	data := api.Deserialize(body)
+	fmt.Println("Response data:", data)
+}

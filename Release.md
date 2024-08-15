@@ -1,3 +1,76 @@
+# Release Notes for Turbo-Restler v0.2.2
+
+## Release Date: 2024-09-15
+
+### Introduction
+Turbo-Restler is a library designed to facilitate RESTful API interactions. This release includes significant improvements and new features to enhance the functionality and reliability of the library.
+
+### New Features
+- **Web API Tests**: Added comprehensive tests for the `web_api` package to ensure the reliability and correctness of the API interactions.
+- **Refactored WebApi Call Function**: The `Call` function in the `WebApi` package has been refactored into four separate functions:
+  - `Send`: Handles sending the request.
+  - `Read`: Handles reading the response.
+  - `Serialise`: Handles serializing the request data.
+  - `Deserialise`: Handles deserializing the response data.
+- **Updated Turbo-Signer Dependency**: Upgraded to `github.com/fr0ster/turbo-signer` version `v0.1.2`, which includes new features and improvements.
+
+### Usage
+To use Turbo-Restler, import the library and call the appropriate functions to interact with your RESTful API.
+
+Example:
+```go
+package main
+
+import (
+    "fmt"
+    "log"
+    "github.com/fr0ster/turbo-restler/web_api"
+)
+
+func main() {
+    // Create a new WebApi instance
+	api, err := web_api.New(web_api.WsHost("localhost:8080"), web_api.WsPath("/ws"), web_api.SchemeWS)
+	if err != nil {
+		log.Fatal("New error:", err)
+	}
+	// Example usage of the refactored functions
+	// Create a sample request JSON
+	request := simplejson.New()
+	request.Set("id", 1)
+	request.Set("method", "with-params")
+	request.Set("params", "Hello, World!")
+	// Відправка запиту з параметрами в simplejson
+	err = api.Send(request)
+	if err != nil {
+		log.Fatal("Send error:", err)
+	}
+
+	// Читання відповіді в simplejson
+	response, err := api.Read()
+	if err != nil {
+		log.Fatal("Read error:", err)
+	}
+	fmt.Println("Response data:", response)
+
+	// Відправка запиту з параметрами в JSON
+	requestBody := api.Serialize(request)
+	err = api.Socket().WriteMessage(websocket.TextMessage, requestBody)
+	if err != nil {
+		logrus.Errorf("error sending message: %v", err)
+		return
+	}
+
+	// Десеріалізація відповіді JSON в simplejson
+	_, body, err := api.Socket().ReadMessage()
+	if err != nil {
+		logrus.Errorf("error reading message: %v", err)
+		return
+	}
+	data := api.Deserialize(body)
+	fmt.Println("Response data:", data)
+}
+```
+
 # Release Notes for Turbo-Restler v0.2.1
 
 ## Release Date: 2024-08-14
@@ -43,3 +116,4 @@ func main() {
 	listenKey = response.Get("listenKey").MustString()
     fmt.Println("listenKey:", listenKey)
 }
+```
