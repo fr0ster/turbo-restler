@@ -9,6 +9,8 @@ github.com/fr0ster/turbo-signer v0.1.2 h1:rrFgLayH8IU43SFHo9zdqaWH/7XjGzqqmq7iv1
 github.com/fr0ster/turbo-signer v0.1.2/go.mod h1:bRyp8RnLzmVP9dmtVCTjUAVbeN2VOjtcBjdKJm2pSu4=
 github.com/fr0ster/turbo-signer v0.1.3 h1:7ADb34KNOv1nFNNWT8nb4ZrJSZnQJQkS/0vopXm6WgU=
 github.com/fr0ster/turbo-signer v0.1.3/go.mod h1:bRyp8RnLzmVP9dmtVCTjUAVbeN2VOjtcBjdKJm2pSu4=
+github.com/fr0ster/turbo-signer v0.1.4 h1:qNU6YchVjg1GKaKG1L0EBnHzrQwWqJM+g+5L9wH+0K0=
+github.com/fr0ster/turbo-signer v0.1.4/go.mod h1:bRyp8RnLzmVP9dmtVCTjUAVbeN2VOjtcBjdKJm2pSu4=
 github.com/gorilla/websocket v1.5.3 h1:saDtZ6Pbx/0u+bgYQ3q96pZgCzfhKXGPqt7kZ72aNNg=
 github.com/gorilla/websocket v1.5.3/go.mod h1:YR8l580nyteQvAITg2hZ9XVh4b55+EU/adAjf1fMHhE=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
