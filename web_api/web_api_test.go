@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,20 +16,20 @@ import (
 )
 
 var (
-	quit          chan struct{}
-	serverStarted bool
+	quit chan struct{}
+	once sync.Once
 )
 
 // Піднімаємо WebSocket сервер
-func startWebSocketServer() (err error) {
-	if !serverStarted {
-		serverStarted = true
-		http.HandleFunc("/ws", handleWithParams)
+func startWebSocketServer() {
+	go func() {
+		once.Do(func() {
+			http.HandleFunc("/ws", handleWithParams)
 
-		logrus.Println("Starting server on :8080")
-		err = http.ListenAndServe(":8080", nil)
-	}
-	return
+			logrus.Println("Starting server on :8080")
+			log.Fatal(http.ListenAndServe(":8080", nil))
+		})
+	}()
 }
 
 var upgrader = websocket.Upgrader{
@@ -82,14 +83,7 @@ func handleWithParams(w http.ResponseWriter, r *http.Request) {
 }
 
 func TestWebApi(t *testing.T) {
-	if !serverStarted {
-		go func() {
-			err := startWebSocketServer()
-			if err != nil {
-				log.Fatal("Error starting server:", err)
-			}
-		}()
-	}
+	startWebSocketServer()
 	// Create a new WebApi instance
 	wa, err := web_api.New(web_api.WsHost("localhost:8080"), web_api.WsPath("/ws"), web_api.SchemeWS)
 	assert.NoError(t, err)
@@ -115,14 +109,7 @@ func TestWebApi(t *testing.T) {
 }
 
 func TestWebApi_Send(t *testing.T) {
-	if !serverStarted {
-		go func() {
-			err := startWebSocketServer()
-			if err != nil {
-				log.Fatal("Error starting server:", err)
-			}
-		}()
-	}
+	startWebSocketServer()
 	// Create a new WebApi instance
 	api, err := web_api.New(web_api.WsHost("localhost:8080"), web_api.WsPath("/ws"), web_api.SchemeWS)
 	if err != nil {
