@@ -1,3 +1,14 @@
+# Release Notes for Turbo-Restler v0.2.4
+
+## Release Date: 2024-09-15
+
+### Introduction
+Turbo-Restler is a library designed to facilitate RESTful API interactions. This release includes significant improvements and new features to enhance the functionality and reliability of the library.
+
+### New Features
+- **Updated Turbo-Signer Dependency**: Upgraded to `github.com/fr0ster/turbo-signer` version `v0.1.4`, which includes new features and improvements.
+
+---
 # Release Notes for Turbo-Restler v0.2.3
 
 ## Release Date: 2024-09-15
