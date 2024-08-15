@@ -1,6 +1,16 @@
 # Release Notes for Turbo-Restler v0.2.5
 
-## Release Date: 2024-10-01
+## Release Date: 2024-08-15
+
+## Changes
+- **Turbo-restler**:
+  - Fixed date errors in `Release.md` to ensure accurate release information.
+
+---
+
+# Release Notes for Turbo-Restler v0.2.5
+
+## Release Date: 2024-08-15
 
 ## Changes
 - **Turbo-restler**:
@@ -39,7 +49,7 @@ func main() {
 
 # Release Notes for Turbo-Restler v0.2.4
 
-## Release Date: 2024-09-15
+## Release Date: 2024-08-15
 
 ### Introduction
 Turbo-Restler is a library designed to facilitate RESTful API interactions. This release includes significant improvements and new features to enhance the functionality and reliability of the library.
@@ -50,7 +60,7 @@ Turbo-Restler is a library designed to facilitate RESTful API interactions. This
 ---
 # Release Notes for Turbo-Restler v0.2.3
 
-## Release Date: 2024-09-15
+## Release Date: 2024-08-15
 
 ### Introduction
 Turbo-Restler is a library designed to facilitate RESTful API interactions. This release includes significant improvements and new features to enhance the functionality and reliability of the library.
@@ -62,7 +72,7 @@ Turbo-Restler is a library designed to facilitate RESTful API interactions. This
 
 # Release Notes for Turbo-Restler v0.2.2
 
-## Release Date: 2024-09-15
+## Release Date: 2024-08-15
 
 ### Introduction
 Turbo-Restler is a library designed to facilitate RESTful API interactions. This release includes significant improvements and new features to enhance the functionality and reliability of the library.
