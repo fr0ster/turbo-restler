@@ -1,3 +1,42 @@
+# Release Notes for Turbo-Restler v0.2.5
+
+## Release Date: 2024-10-01
+
+## Changes
+- **Turbo-restler**:
+  - Added a check to ensure that the test server is started only once. This improves testing efficiency and prevents conflicts when running multiple tests simultaneously.
+
+## Example Usage
+### Turbo-restler Server Initialization
+```go
+package main
+
+import (
+    "fmt"
+    "log"
+    "net/http"
+    "sync"
+)
+
+var once sync.Once
+
+func startTestServer() {
+    once.Do(func() {
+        http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+            fmt.Printf(w, "Hello, World!")
+        })
+        log.Fatal(http.ListenAndServe(":8080", nil))
+    })
+}
+
+func main() {
+    startTestServer()
+    // Your test code here
+}
+```
+
+---
+
 # Release Notes for Turbo-Restler v0.2.4
 
 ## Release Date: 2024-09-15
