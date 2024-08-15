@@ -28,16 +28,37 @@ type (
 
 // Функція виклику Web API
 func (wa *WebApi) Call(request *simplejson.Json) (response *simplejson.Json, err error) {
-	var (
-		requestBody []byte
-	)
-	// Серіалізація запиту в JSON
-	requestBody, err = request.MarshalJSON()
+	// Відправка запиту
+	err = wa.Send(request)
 	if err != nil {
-		err = fmt.Errorf("error marshaling request: %v", err)
 		return
 	}
-	defer wa.socket.Close()
+
+	// Читання відповіді
+	response, err = wa.Read()
+	return
+}
+
+// Серіалізація запиту в JSON
+func (wa *WebApi) Serialize(request *simplejson.Json) (requestBody []byte) {
+	requestBody, _ = request.MarshalJSON()
+	return
+}
+
+// Десеріалізація відповіді
+func (wa *WebApi) Deserialize(body []byte) (response *simplejson.Json) {
+	response, err := simplejson.NewJson(body)
+	if err != nil {
+		response = simplejson.New()
+		response.Set("response", string(body))
+	}
+	return
+}
+
+// Відправка запиту
+func (wa *WebApi) Send(request *simplejson.Json) (err error) {
+	// Серіалізація запиту в JSON
+	requestBody := wa.Serialize(request)
 
 	// Відправка запиту
 	err = wa.socket.WriteMessage(websocket.TextMessage, requestBody)
@@ -45,10 +66,20 @@ func (wa *WebApi) Call(request *simplejson.Json) (response *simplejson.Json, err
 		err = fmt.Errorf("error sending message: %v", err)
 		return
 	}
+	return
+}
 
-	// Читання відповіді
-	_, body, err := wa.socket.ReadMessage()
-	response, err = simplejson.NewJson(body)
+// Читання відповіді
+func (wa *WebApi) Read() (response *simplejson.Json, err error) {
+	var (
+		body []byte
+	)
+	_, body, err = wa.socket.ReadMessage()
+	if err != nil {
+		err = fmt.Errorf("error reading message: %v", err)
+		return
+	}
+	response = wa.Deserialize(body)
 	return
 }
 
@@ -56,8 +87,15 @@ func (wa *WebApi) Socket() *websocket.Conn {
 	return wa.socket
 }
 
-func (wa *WebApi) Close() error {
-	return wa.socket.Close()
+func (wa *WebApi) Close() (err error) {
+	err = wa.socket.Close()
+	if err != nil {
+		err = fmt.Errorf("error closing connection: %v", err)
+		return
+	}
+	wa.socket = nil
+	wa = nil
+	return
 }
 
 func New(
