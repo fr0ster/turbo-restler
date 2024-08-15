@@ -15,15 +15,19 @@ import (
 )
 
 var (
-	quit chan struct{}
+	quit          chan struct{}
+	serverStarted bool
 )
 
 // Піднімаємо WebSocket сервер
 func startWebSocketServer() (err error) {
-	http.HandleFunc("/ws", handleWithParams)
+	if !serverStarted {
+		serverStarted = true
+		http.HandleFunc("/ws", handleWithParams)
 
-	logrus.Println("Starting server on :8080")
-	err = http.ListenAndServe(":8080", nil)
+		logrus.Println("Starting server on :8080")
+		err = http.ListenAndServe(":8080", nil)
+	}
 	return
 }
 
@@ -78,12 +82,14 @@ func handleWithParams(w http.ResponseWriter, r *http.Request) {
 }
 
 func TestWebApi(t *testing.T) {
-	go func() {
-		err := startWebSocketServer()
-		if err != nil {
-			log.Fatal("Error starting server:", err)
-		}
-	}()
+	if !serverStarted {
+		go func() {
+			err := startWebSocketServer()
+			if err != nil {
+				log.Fatal("Error starting server:", err)
+			}
+		}()
+	}
 	// Create a new WebApi instance
 	wa, err := web_api.New(web_api.WsHost("localhost:8080"), web_api.WsPath("/ws"), web_api.SchemeWS)
 	assert.NoError(t, err)
@@ -109,12 +115,14 @@ func TestWebApi(t *testing.T) {
 }
 
 func TestWebApi_Send(t *testing.T) {
-	go func() {
-		err := startWebSocketServer()
-		if err != nil {
-			log.Fatal("Error starting server:", err)
-		}
-	}()
+	if !serverStarted {
+		go func() {
+			err := startWebSocketServer()
+			if err != nil {
+				log.Fatal("Error starting server:", err)
+			}
+		}()
+	}
 	// Create a new WebApi instance
 	api, err := web_api.New(web_api.WsHost("localhost:8080"), web_api.WsPath("/ws"), web_api.SchemeWS)
 	if err != nil {
@@ -155,4 +163,8 @@ func TestWebApi_Send(t *testing.T) {
 	}
 	data := api.Deserialize(body)
 	fmt.Println("Response data:", data)
+
+	// TODO: Add more assertions for the request sending process
+	time.Sleep(1 * time.Second)
+	logrus.Println("Server stopped")
 }
