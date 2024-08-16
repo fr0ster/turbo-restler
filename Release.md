@@ -1,3 +1,14 @@
+# Release Notes for Turbo-Restler v0.2.8
+
+## Release Date: 2024-08-16
+
+## Changes
+- **Turbo-restler**:
+  - Removed timeout functionality from `WebStream.Start` to simplify connection management.
+
+
+---
+
 # Release Notes for Turbo-Restler v0.2.7
 
 ## Release Date: 2024-08-16

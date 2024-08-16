@@ -24,6 +24,7 @@ type (
 		callBackMap WsHandlerMap
 		errHandler  ErrHandler
 		quit        chan struct{}
+		timeOut     time.Duration
 	}
 )
 
@@ -34,14 +35,12 @@ func (ws *WebStream) Socket() *web_api.WebApi {
 func (ws *WebStream) Start() (err error) {
 	if len(ws.callBackMap) != 0 {
 		ws.stream.Socket().SetReadLimit(655350)
-
 		go func() {
 			for {
 				select {
 				case <-ws.quit:
-					ws.Socket().Close()
 					return
-				case <-time.After(1 * time.Second):
+				default:
 					response, err := ws.stream.Read()
 					if err != nil {
 						ws.errHandler(err)
@@ -77,6 +76,10 @@ func (ws *WebStream) SetErrHandler(errHandler ErrHandler) *WebStream {
 	return ws
 }
 
+func (ws *WebStream) SetTimerOut(duration time.Duration) {
+	ws.timeOut = duration
+}
+
 func (ws *WebStream) AddSubscriptions(handlerId string, handler WsHandler) {
 	ws.callBackMap[handlerId] = handler
 }
@@ -110,6 +113,7 @@ func New(
 		stream:      socket,
 		callBackMap: make(WsHandlerMap, 0),
 		quit:        make(chan struct{}),
+		timeOut:     100 * time.Microsecond,
 	}
 	return
 }
