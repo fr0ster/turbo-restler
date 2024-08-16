@@ -1,4 +1,4 @@
-# Release Notes for Turbo-Restler v0.2.6
+# Release Notes for Turbo-Restler v0.2.7
 
 ## Release Date: 2024-08-16
 
@@ -46,7 +46,7 @@ func main() {
 
 ---
 
-# Release Notes for Turbo-Restler v0.2.5
+# Release Notes for Turbo-Restler v0.2.6
 
 ## Release Date: 2024-08-15
 
