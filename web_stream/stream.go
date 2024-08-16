@@ -1,31 +1,29 @@
 package web_stream
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/bitly/go-simplejson"
 	"github.com/fr0ster/turbo-restler/web_api"
 	"github.com/gorilla/websocket"
+	"github.com/sirupsen/logrus"
 )
 
 type (
-	// WsSubscribe handle subscribe messages
-	WsSubscribe func() (*simplejson.Json, error)
+	// WsCallBackMap map of callback functions
+	WsHandlerMap map[string]WsHandler
 
-	// WsUnsubscribe handle unsubscribe messages
-	WsUnsubscribe func() (*simplejson.Json, error)
-
-	// WsHandler handle raw websocket message
-	WsHandler func(message *simplejson.Json)
+	// WsHandler handles messages
+	WsHandler func(*simplejson.Json)
 
 	// ErrHandler handles errors
 	ErrHandler func(err error)
 	WebStream  struct {
-		stream             *web_api.WebApi
-		handler            WsHandler
-		errHandler         ErrHandler
-		websocketTimeout   time.Duration
-		websocketKeepalive bool
+		stream      *web_api.WebApi
+		callBackMap WsHandlerMap
+		errHandler  ErrHandler
+		quit        chan struct{}
 	}
 )
 
@@ -33,85 +31,65 @@ func (ws *WebStream) Socket() *web_api.WebApi {
 	return ws.stream
 }
 
-func (ws *WebStream) Start() (doneC, stopC chan struct{}, err error) {
-	ws.stream.Socket().SetReadLimit(655350)
-	doneC = make(chan struct{})
-	stopC = make(chan struct{})
-	go func() {
-		// This function will exit either on error from
-		// websocket.Conn.ReadMessage or when the stopC channel is
-		// closed by the client.
-		defer close(doneC)
-		if ws.websocketKeepalive {
-			ws.keepAlive(ws.websocketTimeout)
-		}
-		// Wait for the stopC channel to be closed.  We do that in a
-		// separate goroutine because ReadMessage is a blocking
-		// operation.
-		silent := false
+func (ws *WebStream) Start() (err error) {
+	if len(ws.callBackMap) != 0 {
+		ws.stream.Socket().SetReadLimit(655350)
+
 		go func() {
-			select {
-			case <-stopC:
-				silent = true
-			case <-doneC:
+			for {
+				select {
+				case <-ws.quit:
+					ws.Socket().Close()
+					return
+				case <-time.After(1 * time.Second):
+					response, err := ws.stream.Read()
+					if err != nil {
+						ws.errHandler(err)
+					}
+					for _, cb := range ws.callBackMap {
+						cb(response)
+					}
+				}
 			}
 		}()
-		for {
-			_, message, err := ws.stream.Socket().ReadMessage()
-			if err != nil {
-				if !silent && ws.errHandler != nil {
-					ws.errHandler(err)
-				}
-				return
-			}
-			json, err := simplejson.NewJson([]byte(message))
-			if err != nil {
-				json = simplejson.New()
-				json.Set("message", string(message))
-			}
-			if ws.handler != nil {
-				ws.handler(json)
-			}
-		}
-	}()
+	} else {
+		err = fmt.Errorf("no handlers")
+	}
 
 	return
 }
 
-func (ws *WebStream) keepAlive(timeout time.Duration) {
-	ticker := time.NewTicker(timeout)
+func (ws *WebStream) Stop() {
+	close(ws.quit)
+}
 
-	lastResponse := time.Now()
-	ws.stream.Socket().SetPongHandler(func(msg string) error {
-		lastResponse = time.Now()
-		return nil
-	})
+func (ws *WebStream) Close() {
+	ws.stream.Close()
+}
 
-	go func() {
-		defer ticker.Stop()
-		for {
-			deadline := time.Now().Add(10 * time.Second)
-			err := ws.stream.Socket().WriteControl(websocket.PingMessage, []byte{}, deadline)
-			if err != nil {
-				return
-			}
-			<-ticker.C
-			if time.Since(lastResponse) > timeout {
-				ws.stream.Socket().Close()
-				return
-			}
-		}
-	}()
+func (ws *WebStream) SetHandler(handler WsHandler) *WebStream {
+	ws.AddSubscriptions("default", handler)
+	return ws
+}
+
+func (ws *WebStream) SetErrHandler(errHandler ErrHandler) *WebStream {
+	ws.errHandler = errHandler
+	return ws
+}
+
+func (ws *WebStream) AddSubscriptions(handlerId string, handler WsHandler) {
+	ws.callBackMap[handlerId] = handler
+}
+func (ws *WebStream) RemoveSubscriptions(handlerId string) {
+	ws.callBackMap[handlerId] = nil
+	delete(ws.callBackMap, handlerId)
 }
 
 func New(
 	host web_api.WsHost,
 	path web_api.WsPath,
-	handler WsHandler,
-	errHandler ErrHandler,
-	websocketKeepalive bool,
-	websocketTimeout time.Duration,
-	scheme ...web_api.WsScheme) (stream *WebStream, err error) {
+	scheme ...web_api.WsScheme) (stream *WebStream) {
+	var err error
 	if len(scheme) == 0 {
 		scheme = append(scheme, web_api.SchemeWSS)
 	}
@@ -119,12 +97,19 @@ func New(
 	if err != nil {
 		return
 	}
+	// Встановлення обробника для ping повідомлень
+	socket.Socket().SetPingHandler(func(appData string) error {
+		logrus.Debug("Received ping:", appData)
+		err := socket.Socket().WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(time.Second))
+		if err != nil {
+			logrus.Debug("Error sending pong:", err)
+		}
+		return nil
+	})
 	stream = &WebStream{
-		stream:             socket,
-		handler:            handler,
-		errHandler:         errHandler,
-		websocketTimeout:   websocketTimeout,
-		websocketKeepalive: websocketKeepalive,
+		stream:      socket,
+		callBackMap: make(WsHandlerMap, 0),
+		quit:        make(chan struct{}),
 	}
 	return
 }

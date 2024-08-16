@@ -2,6 +2,7 @@ package web_stream_test
 
 import (
 	"net/http"
+	"sync"
 	"testing"
 	"time"
 
@@ -27,7 +28,10 @@ func mockErrHandler(err error) {
 	logrus.Errorf("Error: %v", err)
 }
 
-var upgrader = websocket.Upgrader{}
+var (
+	upgrader = websocket.Upgrader{}
+	once     = new(sync.Once)
+)
 
 func handler(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
@@ -50,8 +54,10 @@ func handler(w http.ResponseWriter, r *http.Request) {
 }
 
 func startServer() {
-	http.HandleFunc("/stream", handler)
-	logrus.Fatal(http.ListenAndServe(":8080", nil))
+	once.Do(func() {
+		http.HandleFunc("/stream", handler)
+		logrus.Fatal(http.ListenAndServe(":8080", nil))
+	})
 }
 
 func TestStartLocalStreamer(t *testing.T) {
@@ -59,24 +65,38 @@ func TestStartLocalStreamer(t *testing.T) {
 	go startServer()
 
 	// Start the streamer
-
-	stream, err := web_stream.New(
+	stream := web_stream.New(
 		web_api.WsHost("localhost:8080"),
 		web_api.WsPath("/stream"),
-		mockHandler,
-		mockErrHandler,
-		true,
-		60*time.Second,
-		web_api.SchemeWS)
-	assert.NoError(t, err)
+		web_api.SchemeWS).SetHandler(mockHandler).SetErrHandler(mockErrHandler)
 	assert.NotNil(t, stream)
 
-	doneC, stopC, err := stream.Start()
+	err := stream.Start()
 	assert.NoError(t, err)
-	assert.NotNil(t, doneC)
-	assert.NotNil(t, stopC)
 
 	// Stop the streamer after some time
 	time.Sleep(timeOut)
-	close(stopC)
+	stream.Stop()
+}
+
+func TestAddRemoveSubscription(t *testing.T) {
+	// Test 1: Local WebSocket server
+	go startServer()
+
+	// Start the streamer
+	stream := web_stream.New(
+		web_api.WsHost("localhost:8080"),
+		web_api.WsPath("/stream"),
+		web_api.SchemeWS).SetErrHandler(mockErrHandler)
+	assert.NotNil(t, stream)
+
+	stream.AddSubscriptions("default", mockHandler)
+
+	err := stream.Start()
+	assert.NoError(t, err)
+
+	stream.RemoveSubscriptions("default")
+
+	err = stream.Start()
+	assert.Error(t, err)
 }

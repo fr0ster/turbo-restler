@@ -1,3 +1,51 @@
+# Release Notes for Turbo-Restler v0.2.6
+
+## Release Date: 2024-08-16
+
+## Changes
+- **Turbo-restler**:
+  - Added functions for managing stream readers:
+    - `func (ws *WebStream) SetHandler(handler WsHandler) *WebStream`
+    - `func (ws *WebStream) SetErrHandler(errHandler ErrHandler) *WebStream`
+    - `func (ws *WebStream) AddSubscriptions(handlerId string, handler WsHandler)`
+    - `func (ws *WebStream) RemoveSubscriptions(handlerId string)`
+
+### Example Usage
+#### Managing Stream Readers
+```go
+package main
+
+import (
+    "fmt"
+    "log"
+    "github.com/fr0ster/turbo-restler/web_stream"
+)
+
+func main() {
+    ws := web_stream.NewWebStream("wss://example.com/stream")
+
+    // Set handler
+    ws.SetHandler(func(message []byte) {
+        fmt.Println("Received message:", string(message))
+    })
+
+    // Set error handler
+    ws.SetErrHandler(func(err error) {
+        log.Println("Error:", err)
+    })
+
+    // Add subscription
+    ws.AddSubscriptions("handler1", func(message []byte) {
+        fmt.Println("Handler1 received message:", string(message))
+    })
+
+    // Remove subscription
+    ws.RemoveSubscriptions("handler1")
+}
+```
+
+---
+
 # Release Notes for Turbo-Restler v0.2.5
 
 ## Release Date: 2024-08-15
