@@ -1,6 +1,6 @@
 # Release Notes for Turbo-Restler
 
-## v0.2.9
+## v0.2.10
 
 ### Release Date: 2024-08-17
 
@@ -47,7 +47,7 @@
 
 ---
 
-##v0.2.9
+## v0.2.9
 
 ### Release Date: 2024-08-17
 
