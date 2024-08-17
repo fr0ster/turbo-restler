@@ -127,33 +127,31 @@ func (ws *WebStream) Subscribe(subscriptions ...string) (err error) {
 }
 
 func (ws *WebStream) ListOfSubscriptions(handler WsHandler) (err error) {
-	if _, ok := ws.callBackMap[strconv.Itoa(int(LIST_SUBSCRIPTIONS_ID))]; ok {
-		// Send subscription request
-		rq := simplejson.New()
-		rq.Set("method", "LIST_SUBSCRIPTIONS")
-		rq.Set("id", LIST_SUBSCRIPTIONS_ID)
-		err := ws.stream.Send(rq)
-		if err != nil {
-			logrus.Fatalf("Error: %v", err)
-		}
-	} else {
-		err = fmt.Errorf("handler not found")
+	if _, ok := ws.callBackMap[strconv.Itoa(int(LIST_SUBSCRIPTIONS_ID))]; !ok {
+		ws.AddHandler(strconv.Itoa(int(LIST_SUBSCRIPTIONS_ID)), handler)
 	}
+	rq := simplejson.New()
+	rq.Set("method", "LIST_SUBSCRIPTIONS")
+	rq.Set("id", LIST_SUBSCRIPTIONS_ID)
+	err = ws.stream.Send(rq)
 	return
 }
 
-func (ws *WebStream) Unsubscribe(handlerId string, handler WsHandler) {
-	if _, ok := ws.callBackMap[handlerId]; !ok {
-		// Send subscription request
-		rq := simplejson.New()
-		rq.Set("method", "UNSUBSCRIBE")
-		rq.Set("id", UNSUBSCRIBE_ID)
-		rq.Set("params", handlerId)
-		err := ws.stream.Send(rq)
-		if err != nil {
-			logrus.Fatalf("Error: %v", err)
-		}
+func (ws *WebStream) Unsubscribe(subscriptions ...string) (err error) {
+	if len(subscriptions) == 0 {
+		err = fmt.Errorf("no subscriptions")
+		return
 	}
+	// Send unsubscribe request
+	rq := simplejson.New()
+	rq.Set("method", "UNSUBSCRIBE")
+	rq.Set("id", UNSUBSCRIBE_ID)
+	rq.Set("params", subscriptions)
+	err = ws.stream.Send(rq)
+	if err != nil {
+		logrus.Fatalf("Error: %v", err)
+	}
+	return
 }
 
 func New(
