@@ -112,17 +112,17 @@ func (ws *WebStream) RemoveHandler(handlerId string) (err error) {
 	return
 }
 
-func (ws *WebStream) Subscribe(handlerId string) (err error) {
-	if _, ok := ws.callBackMap[handlerId]; ok {
-		// Send subscription request
-		rq := simplejson.New()
-		rq.Set("method", "SUBSCRIBE")
-		rq.Set("id", SUBSCRIBE_ID)
-		rq.Set("params", handlerId)
-		err = ws.stream.Send(rq)
-	} else {
-		err = fmt.Errorf("handler not found")
+func (ws *WebStream) Subscribe(subscriptions ...string) (err error) {
+	if len(subscriptions) == 0 {
+		err = fmt.Errorf("no subscriptions")
+		return
 	}
+	// Send subscription request
+	rq := simplejson.New()
+	rq.Set("method", "SUBSCRIBE")
+	rq.Set("id", SUBSCRIBE_ID)
+	rq.Set("params", subscriptions)
+	err = ws.stream.Send(rq)
 	return
 }
 
