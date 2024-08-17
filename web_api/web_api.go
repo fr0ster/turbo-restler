@@ -112,7 +112,6 @@ func New(
 	}
 	conn, _, err := Dialer.Dial(string(scheme[0])+"://"+string(host)+string(path), nil)
 	if err != nil {
-		err = fmt.Errorf("error connecting to WebSocket: %v", err)
 		return
 	}
 	socket = &WebApi{socket: conn}

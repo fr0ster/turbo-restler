@@ -1,3 +1,62 @@
+
+# Release Notes for Turbo-Restler v0.2.9
+
+## Release Date: 2024-08-17
+
+## Changes
+- **Turbo-restler**:
+  - Added functions for managing stream readers to improve flexibility and control over stream handling.
+
+## Example Usage
+### New Functions for Managing Stream Readers
+```go
+package main
+
+import (
+    "fmt"
+    "log"
+    "github.com/fr0ster/turbo-restler/web_api"
+    "github.com/fr0ster/turbo-restler/web_stream"
+)
+
+func main() {
+		// Start the streamer
+	stream, err := web_stream.New(
+		web_api.WsHost("localhost:8080"),
+		web_api.WsPath("/stream"),
+		web_api.SchemeWS)
+	if err != nil {
+		logrus.Fatal(err)
+	}
+
+	err = stream.Start()
+	if err != nil {
+		logrus.Fatal(err)
+	}
+
+	err = stream.AddHandler("stream", mockHandler)
+	if err != nil {
+		logrus.Fatal(err)
+	}
+	err = stream.Subscribe("stream")
+	if err != nil {
+		logrus.Fatal(err)
+	}
+
+	err = stream.Start()
+	if err != nil {
+		logrus.Fatal(err)
+	}
+
+	stream.RemoveHandler("default")
+
+	// Stop the streamer after some time
+	time.Sleep(timeOut)
+	stream.Stop()
+}
+```
+---
+
 # Release Notes for Turbo-Restler v0.2.8
 
 ## Release Date: 2024-08-16

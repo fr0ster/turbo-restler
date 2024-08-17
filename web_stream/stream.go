@@ -2,6 +2,7 @@ package web_stream
 
 import (
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/bitly/go-simplejson"
@@ -10,7 +11,15 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+const (
+	SUBSCRIBE_ID StreamAction = iota
+	LIST_SUBSCRIPTIONS_ID
+	UNSUBSCRIBE_ID
+)
+
 type (
+	// Define the enum type
+	StreamAction int
 	// WsCallBackMap map of callback functions
 	WsHandlerMap map[string]WsHandler
 
@@ -67,7 +76,7 @@ func (ws *WebStream) Close() {
 }
 
 func (ws *WebStream) SetHandler(handler WsHandler) *WebStream {
-	ws.AddSubscriptions("default", handler)
+	ws.AddHandler("default", handler)
 	return ws
 }
 
@@ -80,19 +89,73 @@ func (ws *WebStream) SetTimerOut(duration time.Duration) {
 	ws.timeOut = duration
 }
 
-func (ws *WebStream) AddSubscriptions(handlerId string, handler WsHandler) {
-	ws.callBackMap[handlerId] = handler
+func (ws *WebStream) AddHandler(handlerId string, handler WsHandler) (err error) {
+	if _, ok := ws.callBackMap[handlerId]; !ok {
+		ws.callBackMap[handlerId] = handler
+	} else {
+		err = fmt.Errorf("handler already exists")
+	}
+	return
 }
-func (ws *WebStream) RemoveSubscriptions(handlerId string) {
-	ws.callBackMap[handlerId] = nil
-	delete(ws.callBackMap, handlerId)
+
+func (ws *WebStream) RemoveHandler(handlerId string) (err error) {
+	if _, ok := ws.callBackMap[handlerId]; ok {
+		ws.callBackMap[handlerId] = nil
+		delete(ws.callBackMap, handlerId)
+	} else {
+		err = fmt.Errorf("handler not found")
+	}
+	return
+}
+
+func (ws *WebStream) Subscribe(handlerId string) (err error) {
+	if _, ok := ws.callBackMap[handlerId]; ok {
+		// Send subscription request
+		rq := simplejson.New()
+		rq.Set("method", "SUBSCRIBE")
+		rq.Set("id", SUBSCRIBE_ID)
+		rq.Set("params", handlerId)
+		err = ws.stream.Send(rq)
+	} else {
+		err = fmt.Errorf("handler not found")
+	}
+	return
+}
+
+func (ws *WebStream) ListOfSubscriptions(handler WsHandler) (err error) {
+	if _, ok := ws.callBackMap[strconv.Itoa(int(LIST_SUBSCRIPTIONS_ID))]; ok {
+		// Send subscription request
+		rq := simplejson.New()
+		rq.Set("method", "LIST_SUBSCRIPTIONS")
+		rq.Set("id", LIST_SUBSCRIPTIONS_ID)
+		err := ws.stream.Send(rq)
+		if err != nil {
+			logrus.Fatalf("Error: %v", err)
+		}
+	} else {
+		err = fmt.Errorf("handler not found")
+	}
+	return
+}
+
+func (ws *WebStream) Unsubscribe(handlerId string, handler WsHandler) {
+	if _, ok := ws.callBackMap[handlerId]; !ok {
+		// Send subscription request
+		rq := simplejson.New()
+		rq.Set("method", "UNSUBSCRIBE")
+		rq.Set("id", UNSUBSCRIBE_ID)
+		rq.Set("params", handlerId)
+		err := ws.stream.Send(rq)
+		if err != nil {
+			logrus.Fatalf("Error: %v", err)
+		}
+	}
 }
 
 func New(
 	host web_api.WsHost,
 	path web_api.WsPath,
-	scheme ...web_api.WsScheme) (stream *WebStream) {
-	var err error
+	scheme ...web_api.WsScheme) (stream *WebStream, err error) {
 	if len(scheme) == 0 {
 		scheme = append(scheme, web_api.SchemeWSS)
 	}
@@ -104,10 +167,7 @@ func New(
 	socket.Socket().SetPingHandler(func(appData string) error {
 		logrus.Debug("Received ping:", appData)
 		err := socket.Socket().WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(time.Second))
-		if err != nil {
-			logrus.Debug("Error sending pong:", err)
-		}
-		return nil
+		panic(err)
 	})
 	stream = &WebStream{
 		stream:      socket,
