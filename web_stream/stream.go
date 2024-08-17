@@ -7,7 +7,6 @@ import (
 
 	"github.com/bitly/go-simplejson"
 	"github.com/fr0ster/turbo-restler/web_api"
-	"github.com/gorilla/websocket"
 	"github.com/sirupsen/logrus"
 )
 
@@ -168,12 +167,6 @@ func New(
 	if err != nil {
 		return
 	}
-	// Встановлення обробника для ping повідомлень
-	socket.Socket().SetPingHandler(func(appData string) error {
-		logrus.Debug("Received ping:", appData)
-		err := socket.Socket().WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(time.Second))
-		panic(err)
-	})
 	stream = &WebStream{
 		stream:      socket,
 		callBackMap: make(WsHandlerMap, 0),

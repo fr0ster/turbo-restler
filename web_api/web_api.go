@@ -7,6 +7,7 @@ import (
 
 	"github.com/bitly/go-simplejson"
 	"github.com/gorilla/websocket"
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -114,6 +115,12 @@ func New(
 	if err != nil {
 		return
 	}
+	// Встановлення обробника для ping повідомлень
+	conn.SetPingHandler(func(appData string) error {
+		logrus.Debug("Received ping:", appData)
+		err := conn.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(time.Second))
+		panic(err)
+	})
 	socket = &WebApi{socket: conn}
 	return
 }
