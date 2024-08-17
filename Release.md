@@ -1,5 +1,16 @@
 # Release Notes for Turbo-Restler
 
+## v0.2.11
+
+### Release Date: 2024-08-17
+
+### Changes
+- **Turbo-restler**:
+  - **chore**: Update WebStream Subscribe method to support multiple subscriptions
+    - This commit modifies the `Subscribe` method in the `WebStream` struct to accept multiple subscriptions as variadic parameters. It checks if there are any subscriptions provided and sends a subscription request for each one. This change improves the flexibility and usability of the `Subscribe` method.
+
+---
+
 ## v0.2.10
 
 ### Release Date: 2024-08-17
