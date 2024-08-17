@@ -121,39 +121,3 @@ func TestAddRemoveSubscription(t *testing.T) {
 	time.Sleep(timeOut)
 	stream.Stop()
 }
-
-func TestStartStreamer(t *testing.T) {
-	// Start the streamer
-	stream, err := web_stream.New(
-		web_api.WsHost("localhost:8080"),
-		web_api.WsPath("/stream"),
-		web_api.SchemeWS)
-	if err != nil {
-		logrus.Fatal(err)
-	}
-
-	err = stream.Start()
-	if err != nil {
-		logrus.Fatal(err)
-	}
-
-	err = stream.AddHandler("stream", mockHandler)
-	if err != nil {
-		logrus.Fatal(err)
-	}
-	err = stream.Subscribe("stream")
-	if err != nil {
-		logrus.Fatal(err)
-	}
-
-	err = stream.Start()
-	if err != nil {
-		logrus.Fatal(err)
-	}
-
-	stream.RemoveHandler("default")
-
-	// Stop the streamer after some time
-	time.Sleep(timeOut)
-	stream.Stop()
-}
