@@ -118,8 +118,16 @@ func New(
 	// Встановлення обробника для ping повідомлень
 	conn.SetPingHandler(func(appData string) error {
 		logrus.Debug("Received ping:", appData)
-		err := conn.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(time.Second))
-		panic(err)
+		err = conn.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(time.Second))
+		if err != nil {
+			logrus.Error("Error sending pong:", err)
+		}
+		return nil
+	})
+	// Встановлення обробника для pong повідомлень
+	conn.SetPongHandler(func(appData string) error {
+		logrus.Debug("Received pong:", appData)
+		return nil
 	})
 	socket = &WebApi{socket: conn}
 	return
