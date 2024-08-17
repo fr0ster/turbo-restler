@@ -1,5 +1,17 @@
 # Release Notes for Turbo-Restler
 
+## v0.2.12
+
+### Release Date: 2024-08-17
+
+### Changes
+- **Turbo-restler**:
+  - **chore**: Update WebStream Socket method to use the 'socket' variable
+    - This commit updates the `Socket` method in the `WebStream` struct to use the `socket` variable instead of the deprecated `stream` variable. This change ensures consistency and clarity in the codebase.
+    - **Note**: This commit is based on recent user commits and repository commits.
+
+---
+
 ## v0.2.11
 
 ### Release Date: 2024-08-17

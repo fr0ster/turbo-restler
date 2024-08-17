@@ -28,7 +28,7 @@ type (
 	// ErrHandler handles errors
 	ErrHandler func(err error)
 	WebStream  struct {
-		stream      *web_api.WebApi
+		socket      *web_api.WebApi
 		callBackMap WsHandlerMap
 		errHandler  ErrHandler
 		quit        chan struct{}
@@ -37,32 +37,28 @@ type (
 )
 
 func (ws *WebStream) Socket() *web_api.WebApi {
-	return ws.stream
+	return ws.socket
 }
 
 func (ws *WebStream) Start() (err error) {
-	if len(ws.callBackMap) != 0 {
-		ws.stream.Socket().SetReadLimit(655350)
-		go func() {
-			for {
-				select {
-				case <-ws.quit:
-					return
-				default:
-					response, err := ws.stream.Read()
-					if err != nil {
-						ws.errHandler(err)
-					} else {
-						for _, cb := range ws.callBackMap {
-							cb(response)
-						}
+	ws.socket.Socket().SetReadLimit(655350)
+	go func() {
+		for {
+			select {
+			case <-ws.quit:
+				return
+			default:
+				response, err := ws.socket.Read()
+				if err != nil {
+					ws.errHandler(err)
+				} else {
+					for _, cb := range ws.callBackMap {
+						cb(response)
 					}
 				}
 			}
-		}()
-	} else {
-		err = fmt.Errorf("no handlers")
-	}
+		}
+	}()
 
 	return
 }
@@ -72,7 +68,7 @@ func (ws *WebStream) Stop() {
 }
 
 func (ws *WebStream) Close() {
-	ws.stream.Close()
+	ws.socket.Close()
 }
 
 func (ws *WebStream) SetDefaultHandler(handler WsHandler) *WebStream {
@@ -122,7 +118,7 @@ func (ws *WebStream) Subscribe(subscriptions ...string) (err error) {
 	rq.Set("method", "SUBSCRIBE")
 	rq.Set("id", SUBSCRIBE_ID)
 	rq.Set("params", subscriptions)
-	err = ws.stream.Send(rq)
+	err = ws.socket.Send(rq)
 	return
 }
 
@@ -133,7 +129,7 @@ func (ws *WebStream) ListOfSubscriptions(handler WsHandler) (err error) {
 	rq := simplejson.New()
 	rq.Set("method", "LIST_SUBSCRIPTIONS")
 	rq.Set("id", LIST_SUBSCRIPTIONS_ID)
-	err = ws.stream.Send(rq)
+	err = ws.socket.Send(rq)
 	return
 }
 
@@ -147,7 +143,7 @@ func (ws *WebStream) Unsubscribe(subscriptions ...string) (err error) {
 	rq.Set("method", "UNSUBSCRIBE")
 	rq.Set("id", UNSUBSCRIBE_ID)
 	rq.Set("params", subscriptions)
-	err = ws.stream.Send(rq)
+	err = ws.socket.Send(rq)
 	if err != nil {
 		logrus.Fatalf("Error: %v", err)
 	}
@@ -166,7 +162,7 @@ func New(
 		return
 	}
 	stream = &WebStream{
-		stream:      socket,
+		socket:      socket,
 		callBackMap: make(WsHandlerMap, 0),
 		quit:        make(chan struct{}),
 		timeOut:     100 * time.Microsecond,
