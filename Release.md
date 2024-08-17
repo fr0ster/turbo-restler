@@ -1,14 +1,62 @@
+# Release Notes for Turbo-Restler
 
-# Release Notes for Turbo-Restler v0.2.9
+## v0.2.9
 
-## Release Date: 2024-08-17
+### Release Date: 2024-08-17
 
-## Changes
+### Changes
 - **Turbo-restler**:
   - Added functions for managing stream readers to improve flexibility and control over stream handling.
 
-## Example Usage
-### New Functions for Managing Stream Readers
+### Commits
+#### commit 772e8c65cf818c8c5cb35db5902af1267cfb83f9
+- **Author**: Aleksey Kislitsa <aleksey.kislitsa@gmail.com>
+- **Commit**: Aleksey Kislitsa <aleksey.kislitsa@gmail.com>
+- **Description**:
+  - **chore**: Update WebStream Subscribe method to support multiple subscriptions
+  - This commit modifies the `Subscribe` method in the `WebStream` struct to accept multiple subscriptions as variadic parameters. It checks if there are any subscriptions provided and sends a subscription request for each one. This change improves the flexibility and usability of the `Subscribe` method.
+  - **Note**: This commit is based on recent user commits and repository commits.
+
+#### commit edc29ea9881bf13782aeff45abf06b2de2925030
+- **Author**: Aleksey Kislitsa <aleksey.kislitsa@gmail.com>
+- **Commit**: Aleksey Kislitsa <aleksey.kislitsa@gmail.com>
+- **Description**:
+  - **chore**: Update SUBSCRIBE_ID constant value in stream.go
+  - This commit updates the value of the SUBSCRIBE_ID constant in the stream.go file. The new value is SUBSCRIBE_ID + 1, which ensures that the constant is incremented correctly. This change is necessary to align with recent user and repository commits related to the WebSocket connection.
+  - **Note**: This commit is based on recent user commits and repository commits.
+
+#### commit 2f0bc200afe06c77b4442d686f4dca6ba5fa2c87
+- **Author**: Aleksey Kislitsa <aleksey.kislitsa@gmail.com>
+- **Commit**: Aleksey Kislitsa <aleksey.kislitsa@gmail.com>
+- **Description**:
+  - **chore**: Update WebSocket connection to handle ping and pong messages
+  - This commit modifies the `web_api.go` file to handle ping and pong messages in the WebSocket connection. It sets up handlers for ping and pong messages, and sends a pong message in response to a ping message. This improves the reliability and responsiveness of the WebSocket connection.
+  - **Note**: This commit is based on recent user commits and repository commits.
+
+#### commit 6ffb830553324d67028cb061a67be894511a6b1d
+- **Author**: Aleksey Kislitsa <aleksey.kislitsa@gmail.com>
+- **Commit**: Aleksey Kislitsa <aleksey.kislitsa@gmail.com>
+- **Description**:
+  - **chore**: Update WebSocket connection to use wss scheme
+
+#### commit 2a1e12b2cf97bbccbbe5218c15f635e216d04e40
+- **Author**: Aleksey Kislitsa <aleksey.kislitsa@gmail.com>
+- **Commit**: Aleksey Kislitsa <aleksey.kislitsa@gmail.com>
+- **Description**:
+  - **chore**: Refactor WebSocket connection to use wss scheme
+
+---
+
+##v0.2.9
+
+### Release Date: 2024-08-17
+
+### Changes
+- **Turbo-restler**:
+  - Added functions for managing stream readers to improve flexibility and control over stream handling.
+
+### Example Usage
+#### New Functions for Managing Stream Readers
 ```go
 package main
 
@@ -57,22 +105,22 @@ func main() {
 ```
 ---
 
-# Release Notes for Turbo-Restler v0.2.8
+## v0.2.8
 
-## Release Date: 2024-08-16
+### Release Date: 2024-08-16
 
-## Changes
+### Changes
 - **Turbo-restler**:
   - Removed timeout functionality from `WebStream.Start` to simplify connection management.
 
 
 ---
 
-# Release Notes for Turbo-Restler v0.2.7
+## v0.2.7
 
-## Release Date: 2024-08-16
+### Release Date: 2024-08-16
 
-## Changes
+### Changes
 - **Turbo-restler**:
   - Added functions for managing stream readers:
     - `func (ws *WebStream) SetHandler(handler WsHandler) *WebStream`
@@ -80,8 +128,8 @@ func main() {
     - `func (ws *WebStream) AddSubscriptions(handlerId string, handler WsHandler)`
     - `func (ws *WebStream) RemoveSubscriptions(handlerId string)`
 
-### Example Usage
-#### Managing Stream Readers
+#### Example Usage
+##### Managing Stream Readers
 ```go
 package main
 
@@ -116,26 +164,26 @@ func main() {
 
 ---
 
-# Release Notes for Turbo-Restler v0.2.6
+## v0.2.6
 
-## Release Date: 2024-08-15
+### Release Date: 2024-08-15
 
-## Changes
+### Changes
 - **Turbo-restler**:
   - Fixed date errors in `Release.md` to ensure accurate release information.
 
 ---
 
-# Release Notes for Turbo-Restler v0.2.5
+## Release Notes for Turbo-Restler v0.2.5
 
-## Release Date: 2024-08-15
+### Release Date: 2024-08-15
 
-## Changes
+### Changes
 - **Turbo-restler**:
   - Added a check to ensure that the test server is started only once. This improves testing efficiency and prevents conflicts when running multiple tests simultaneously.
 
-## Example Usage
-### Turbo-restler Server Initialization
+### Example Usage
+#### Turbo-restler Server Initialization
 ```go
 package main
 
@@ -165,37 +213,37 @@ func main() {
 
 ---
 
-# Release Notes for Turbo-Restler v0.2.4
+## v0.2.4
 
-## Release Date: 2024-08-15
+### Release Date: 2024-08-15
 
-### Introduction
+#### Introduction
 Turbo-Restler is a library designed to facilitate RESTful API interactions. This release includes significant improvements and new features to enhance the functionality and reliability of the library.
 
-### New Features
+#### New Features
 - **Updated Turbo-Signer Dependency**: Upgraded to `github.com/fr0ster/turbo-signer` version `v0.1.4`, which includes new features and improvements.
 
 ---
-# Release Notes for Turbo-Restler v0.2.3
+## v0.2.3
 
-## Release Date: 2024-08-15
+### Release Date: 2024-08-15
 
-### Introduction
+#### Introduction
 Turbo-Restler is a library designed to facilitate RESTful API interactions. This release includes significant improvements and new features to enhance the functionality and reliability of the library.
 
-### New Features
+#### New Features
 - **Updated Turbo-Signer Dependency**: Upgraded to `github.com/fr0ster/turbo-signer` version `v0.1.3`, which includes new features and improvements.
 
 ---
 
-# Release Notes for Turbo-Restler v0.2.2
+## v0.2.2
 
-## Release Date: 2024-08-15
+### Release Date: 2024-08-15
 
-### Introduction
+#### Introduction
 Turbo-Restler is a library designed to facilitate RESTful API interactions. This release includes significant improvements and new features to enhance the functionality and reliability of the library.
 
-### New Features
+#### New Features
 - **Web API Tests**: Added comprehensive tests for the `web_api` package to ensure the reliability and correctness of the API interactions.
 - **Refactored WebApi Call Function**: The `Call` function in the `WebApi` package has been refactored into four separate functions:
   - `Send`: Handles sending the request.
@@ -204,7 +252,7 @@ Turbo-Restler is a library designed to facilitate RESTful API interactions. This
   - `Deserialise`: Handles deserializing the response data.
 - **Updated Turbo-Signer Dependency**: Upgraded to `github.com/fr0ster/turbo-signer` version `v0.1.2`, which includes new features and improvements.
 
-### Usage
+#### Usage
 To use Turbo-Restler, import the library and call the appropriate functions to interact with your RESTful API.
 
 Example:
@@ -261,28 +309,28 @@ func main() {
 }
 ```
 
-# Release Notes for Turbo-Restler v0.2.1
+## v0.2.1
 
-## Release Date: 2024-08-14
+### Release Date: 2024-08-14
 
-### Introduction
+#### Introduction
 Turbo-Restler is a wrapper library designed to simplify interactions with RESTful APIs over HTTP and WebSocket APIs using `gorilla/websocket`. This library provides an intuitive and efficient way to integrate API calls into your applications, handling the complexities of HTTP requests and WebSocket connections.
 
-### New Features
+#### New Features
 - **RESTful API Wrapper**: Simplifies making HTTP requests to RESTful APIs, including support for GET, POST, PUT, DELETE, and other HTTP methods.
 - **WebSocket API Wrapper**: Provides an easy-to-use interface for establishing and managing WebSocket connections using `gorilla/websocket`.
 - **JSON Handling**: Integrates with `go-simplejson` for easy manipulation of JSON data in API responses.
 - **Logging**: Utilizes `logrus` for structured logging, making it easier to debug and monitor API interactions.
 - **Testing Utilities**: Includes support for `stretchr/testify` to facilitate unit testing of API interactions.
 
-### Dependencies
+#### Dependencies
 - **go-simplejson v0.5.1**: For easy JSON manipulation.
 - **gorilla/websocket v1.5.3**: For WebSocket connections.
 - **stretchr/testify v1.9.0**: For testing utilities.
 - **logrus v1.9.3**: For structured logging.
 - **turbo-signer v0.0.0-20240814090304-a777f0da004f**: For signing API request parameters.
 
-### Usage
+#### Usage
 To use Turbo-Restler, import the library and call the appropriate functions to interact with RESTful and WebSocket APIs.
 
 Example for RESTful API:
