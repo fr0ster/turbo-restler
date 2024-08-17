@@ -53,9 +53,10 @@ func (ws *WebStream) Start() (err error) {
 					response, err := ws.stream.Read()
 					if err != nil {
 						ws.errHandler(err)
-					}
-					for _, cb := range ws.callBackMap {
-						cb(response)
+					} else {
+						for _, cb := range ws.callBackMap {
+							cb(response)
+						}
 					}
 				}
 			}
@@ -75,9 +76,13 @@ func (ws *WebStream) Close() {
 	ws.stream.Close()
 }
 
-func (ws *WebStream) SetHandler(handler WsHandler) *WebStream {
+func (ws *WebStream) SetDefaultHandler(handler WsHandler) *WebStream {
 	ws.AddHandler("default", handler)
 	return ws
+}
+
+func (ws *WebStream) RemoveDefaultHandler() {
+	ws.RemoveHandler("default")
 }
 
 func (ws *WebStream) SetErrHandler(errHandler ErrHandler) *WebStream {

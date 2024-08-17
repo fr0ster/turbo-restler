@@ -81,7 +81,26 @@ func TestStartLocalStreamer(t *testing.T) {
 		web_api.SchemeWS)
 	assert.NoError(t, err)
 	assert.NotNil(t, stream)
-	stream.SetHandler(mockHandler).SetErrHandler(mockErrHandler)
+	stream.SetDefaultHandler(mockHandler).SetErrHandler(mockErrHandler)
+
+	err = stream.Start()
+	assert.NoError(t, err)
+
+	// Stop the streamer after some time
+	time.Sleep(timeOut)
+	stream.Stop()
+}
+
+func TestRemoteStreamer(t *testing.T) {
+	// Test 2: Remote WebSocket server
+	// Start the streamer
+	stream, err := web_stream.New(
+		web_api.WsHost("fstream.binancefuture.com/ws"),
+		web_api.WsPath("/btcusdt@trade"),
+		web_api.SchemeWSS)
+	assert.NoError(t, err)
+	assert.NotNil(t, stream)
+	stream.SetDefaultHandler(mockHandler).SetErrHandler(mockErrHandler)
 
 	err = stream.Start()
 	assert.NoError(t, err)
