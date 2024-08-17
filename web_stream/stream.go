@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	SUBSCRIBE_ID StreamAction = iota
+	SUBSCRIBE_ID StreamAction = iota + 1
 	LIST_SUBSCRIPTIONS_ID
 	UNSUBSCRIBE_ID
 )
