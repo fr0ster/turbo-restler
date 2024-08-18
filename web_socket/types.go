@@ -1,6 +1,7 @@
 package web_socket
 
 import (
+	"sync"
 	"time"
 
 	"github.com/bitly/go-simplejson"
@@ -32,5 +33,6 @@ type (
 		errHandler  ErrHandler
 		quit        chan struct{}
 		timeOut     time.Duration
+		mutex       *sync.Mutex
 	}
 )

@@ -2,10 +2,19 @@ package web_socket
 
 import (
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
 )
+
+func (socket *WebSocketWrapper) Lock() {
+	socket.mutex.Lock()
+}
+
+func (socket *WebSocketWrapper) Unlock() {
+	socket.mutex.Unlock()
+}
 
 func New(
 	host WsHost,
@@ -29,6 +38,7 @@ func New(
 		callBackMap: make(WsHandlerMap, 0),
 		quit:        make(chan struct{}),
 		timeOut:     5 * time.Second,
+		mutex:       &sync.Mutex{},
 	}
 	return
 }

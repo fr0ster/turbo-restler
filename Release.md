@@ -1,5 +1,16 @@
 # Release Notes for Turbo-Restler
 
+## v0.2.17
+
+### Release Date: 2024-08-18
+
+### Changes
+- **Turbo-Restler**:
+  - **WebSocketWrapper**:
+    - Added `Lock` and `Unlock` functions.
+
+---
+
 ## v0.2.16
 
 ### Release Date: 2024-08-18
