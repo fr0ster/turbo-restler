@@ -1,5 +1,21 @@
 # Release Notes for Turbo-Restler
 
+## v0.2.13
+
+### Release Date: 2024-08-18
+
+### Changes
+- **Turbo-Restler**:
+  - **WebApi**:
+    - Removed default logging and added the ability to set a custom error logger for handling ping messages.
+    - Removed the default ping message handler setup in `New` and added the ability to set it if needed.
+    - Added the ability to check the socket state (open or closed).
+  - **WebStream**:
+    - Removed default error logging; errors are now only returned in the error variable.
+    - Added the ability to check the socket state.
+
+---
+
 ## v0.2.12
 
 ### Release Date: 2024-08-17

@@ -7,7 +7,6 @@ import (
 
 	"github.com/bitly/go-simplejson"
 	"github.com/fr0ster/turbo-restler/web_api"
-	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -144,10 +143,23 @@ func (ws *WebStream) Unsubscribe(subscriptions ...string) (err error) {
 	rq.Set("id", UNSUBSCRIBE_ID)
 	rq.Set("params", subscriptions)
 	err = ws.socket.Send(rq)
-	if err != nil {
-		logrus.Fatalf("Error: %v", err)
-	}
 	return
+}
+
+func (ws *WebStream) SetPingHandler() {
+	ws.socket.SetPingHandler()
+}
+
+func (ws *WebStream) SetErrorHandler(handler func(err error)) {
+	ws.errHandler = handler
+}
+
+func (ws *WebStream) IsOpen() bool {
+	return ws.socket.IsOpen()
+}
+
+func (ws *WebStream) IsClosed() bool {
+	return ws.socket.IsClosed()
 }
 
 func New(
@@ -167,5 +179,6 @@ func New(
 		quit:        make(chan struct{}),
 		timeOut:     100 * time.Microsecond,
 	}
+	stream.socket.SetPingHandler()
 	return
 }

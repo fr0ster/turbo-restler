@@ -7,7 +7,6 @@ import (
 
 	"github.com/bitly/go-simplejson"
 	"github.com/gorilla/websocket"
-	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -23,7 +22,9 @@ type (
 	WsHost   string
 	WsPath   string
 	WebApi   struct {
-		socket *websocket.Conn
+		silent     bool
+		conn       *websocket.Conn
+		errHandler func(err error)
 	}
 )
 
@@ -62,7 +63,7 @@ func (wa *WebApi) Send(request *simplejson.Json) (err error) {
 	requestBody := wa.Serialize(request)
 
 	// Відправка запиту
-	err = wa.socket.WriteMessage(websocket.TextMessage, requestBody)
+	err = wa.conn.WriteMessage(websocket.TextMessage, requestBody)
 	if err != nil {
 		err = fmt.Errorf("error sending message: %v", err)
 		return
@@ -75,7 +76,7 @@ func (wa *WebApi) Read() (response *simplejson.Json, err error) {
 	var (
 		body []byte
 	)
-	_, body, err = wa.socket.ReadMessage()
+	_, body, err = wa.conn.ReadMessage()
 	if err != nil {
 		err = fmt.Errorf("error reading message: %v", err)
 		return
@@ -85,18 +86,55 @@ func (wa *WebApi) Read() (response *simplejson.Json, err error) {
 }
 
 func (wa *WebApi) Socket() *websocket.Conn {
-	return wa.socket
+	return wa.conn
 }
 
 func (wa *WebApi) Close() (err error) {
-	err = wa.socket.Close()
+	err = wa.conn.Close()
 	if err != nil {
 		err = fmt.Errorf("error closing connection: %v", err)
 		return
 	}
-	wa.socket = nil
+	wa.conn = nil
 	wa = nil
 	return
+}
+
+func (wa *WebApi) SetSilentMode(silent bool) {
+	wa.silent = silent
+}
+
+func (wa *WebApi) SetPingHandler(handler ...func(appData string) error) {
+	// Встановлення обробника для ping повідомлень
+	if len(handler) == 0 {
+		wa.conn.SetPingHandler(func(appData string) error {
+			err := wa.conn.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(time.Second))
+			if err != nil {
+				wa.errorHandler(fmt.Errorf("error sending pong: %v", err))
+			}
+			return nil
+		})
+	} else {
+		wa.conn.SetPingHandler(handler[0])
+	}
+}
+
+func (wa *WebApi) SetErrorHandler(handler func(err error)) {
+	wa.errHandler = handler
+}
+
+func (wa *WebApi) errorHandler(err error) {
+	if wa.errHandler != nil && !wa.silent {
+		wa.errHandler(err)
+	}
+}
+
+func (wa *WebApi) IsOpen() bool {
+	return wa.conn != nil
+}
+
+func (wa *WebApi) IsClosed() bool {
+	return wa.conn == nil
 }
 
 func New(
@@ -115,20 +153,9 @@ func New(
 	if err != nil {
 		return
 	}
-	// Встановлення обробника для ping повідомлень
-	conn.SetPingHandler(func(appData string) error {
-		logrus.Debug("Received ping:", appData)
-		err = conn.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(time.Second))
-		if err != nil {
-			logrus.Error("Error sending pong:", err)
-		}
-		return nil
-	})
-	// Встановлення обробника для pong повідомлень
-	conn.SetPongHandler(func(appData string) error {
-		logrus.Debug("Received pong:", appData)
-		return nil
-	})
-	socket = &WebApi{socket: conn}
+	socket = &WebApi{
+		silent: true,
+		conn:   conn,
+	}
 	return
 }
