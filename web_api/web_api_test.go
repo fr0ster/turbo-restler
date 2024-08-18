@@ -12,7 +12,6 @@ import (
 	web_api "github.com/fr0ster/turbo-restler/web_api"
 	"github.com/gorilla/websocket"
 	"github.com/sirupsen/logrus"
-	"github.com/stretchr/testify/assert"
 )
 
 var (
@@ -83,32 +82,6 @@ func handleWithParams(w http.ResponseWriter, r *http.Request) {
 }
 
 func TestWebApi(t *testing.T) {
-	startWebSocketServer()
-	// Create a new WebApi instance
-	wa, err := web_api.New(web_api.WsHost("localhost:8080"), web_api.WsPath("/ws"), web_api.SchemeWS)
-	assert.NoError(t, err)
-
-	// Create a sample request JSON
-	request := simplejson.New()
-	request.Set("id", 1)
-	request.Set("method", "with-params")
-	request.Set("params", "Hello, World!")
-
-	// Send the request
-	err = wa.Send(request)
-	assert.NoError(t, err)
-
-	// Read the response
-	response, err := wa.Read()
-	assert.NoError(t, err)
-	assert.NotNil(t, response)
-
-	// TODO: Add more assertions for the request sending process
-	time.Sleep(1 * time.Second)
-	logrus.Println("Server stopped")
-}
-
-func TestWebApi_Send(t *testing.T) {
 	startWebSocketServer()
 	// Create a new WebApi instance
 	api, err := web_api.New(web_api.WsHost("localhost:8080"), web_api.WsPath("/ws"), web_api.SchemeWS)

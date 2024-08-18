@@ -1,23 +1,13 @@
 package web_stream
 
 import (
-	"fmt"
-	"strconv"
 	"time"
 
 	"github.com/bitly/go-simplejson"
 	"github.com/fr0ster/turbo-restler/web_api"
 )
 
-const (
-	SUBSCRIBE_ID StreamAction = iota + 1
-	LIST_SUBSCRIPTIONS_ID
-	UNSUBSCRIBE_ID
-)
-
 type (
-	// Define the enum type
-	StreamAction int
 	// WsCallBackMap map of callback functions
 	WsHandlerMap map[string]WsHandler
 
@@ -70,80 +60,29 @@ func (ws *WebStream) Close() {
 	ws.socket.Close()
 }
 
-func (ws *WebStream) SetDefaultHandler(handler WsHandler) *WebStream {
-	ws.AddHandler("default", handler)
-	return ws
-}
-
-func (ws *WebStream) RemoveDefaultHandler() {
-	ws.RemoveHandler("default")
-}
-
 func (ws *WebStream) SetErrHandler(errHandler ErrHandler) *WebStream {
 	ws.errHandler = errHandler
 	return ws
 }
 
-func (ws *WebStream) SetTimerOut(duration time.Duration) {
+func (ws *WebStream) SetTimerOut(duration time.Duration) *WebStream {
 	ws.timeOut = duration
+	return ws
 }
 
-func (ws *WebStream) AddHandler(handlerId string, handler WsHandler) (err error) {
+func (ws *WebStream) AddHandler(handlerId string, handler WsHandler) *WebStream {
 	if _, ok := ws.callBackMap[handlerId]; !ok {
 		ws.callBackMap[handlerId] = handler
-	} else {
-		err = fmt.Errorf("handler already exists")
 	}
-	return
+	return ws
 }
 
-func (ws *WebStream) RemoveHandler(handlerId string) (err error) {
+func (ws *WebStream) RemoveHandler(handlerId string) *WebStream {
 	if _, ok := ws.callBackMap[handlerId]; ok {
 		ws.callBackMap[handlerId] = nil
 		delete(ws.callBackMap, handlerId)
-	} else {
-		err = fmt.Errorf("handler not found")
 	}
-	return
-}
-
-func (ws *WebStream) Subscribe(subscriptions ...string) (err error) {
-	if len(subscriptions) == 0 {
-		err = fmt.Errorf("no subscriptions")
-		return
-	}
-	// Send subscription request
-	rq := simplejson.New()
-	rq.Set("method", "SUBSCRIBE")
-	rq.Set("id", SUBSCRIBE_ID)
-	rq.Set("params", subscriptions)
-	err = ws.socket.Send(rq)
-	return
-}
-
-func (ws *WebStream) ListOfSubscriptions(handler WsHandler) (err error) {
-	if _, ok := ws.callBackMap[strconv.Itoa(int(LIST_SUBSCRIPTIONS_ID))]; !ok {
-		ws.AddHandler(strconv.Itoa(int(LIST_SUBSCRIPTIONS_ID)), handler)
-	}
-	rq := simplejson.New()
-	rq.Set("method", "LIST_SUBSCRIPTIONS")
-	rq.Set("id", LIST_SUBSCRIPTIONS_ID)
-	err = ws.socket.Send(rq)
-	return
-}
-
-func (ws *WebStream) Unsubscribe(subscriptions ...string) (err error) {
-	if len(subscriptions) == 0 {
-		err = fmt.Errorf("no subscriptions")
-		return
-	}
-	// Send unsubscribe request
-	rq := simplejson.New()
-	rq.Set("method", "UNSUBSCRIBE")
-	rq.Set("id", UNSUBSCRIBE_ID)
-	rq.Set("params", subscriptions)
-	err = ws.socket.Send(rq)
-	return
+	return ws
 }
 
 func (ws *WebStream) SetPingHandler() {
@@ -177,7 +116,7 @@ func New(
 		socket:      socket,
 		callBackMap: make(WsHandlerMap, 0),
 		quit:        make(chan struct{}),
-		timeOut:     100 * time.Microsecond,
+		timeOut:     5 * time.Second,
 	}
 	stream.socket.SetPingHandler()
 	return

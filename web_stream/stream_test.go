@@ -81,7 +81,7 @@ func TestStartLocalStreamer(t *testing.T) {
 		web_api.SchemeWS)
 	assert.NoError(t, err)
 	assert.NotNil(t, stream)
-	stream.SetDefaultHandler(mockHandler).SetErrHandler(mockErrHandler)
+	stream.AddHandler("default", mockHandler).SetErrHandler(mockErrHandler)
 
 	err = stream.Start()
 	assert.NoError(t, err)
@@ -100,41 +100,10 @@ func TestRemoteStreamer(t *testing.T) {
 		web_api.SchemeWSS)
 	assert.NoError(t, err)
 	assert.NotNil(t, stream)
-	stream.SetDefaultHandler(mockHandler).SetErrHandler(mockErrHandler)
+	stream.AddHandler("default", mockHandler).SetErrHandler(mockErrHandler)
 
 	err = stream.Start()
 	assert.NoError(t, err)
-
-	// Stop the streamer after some time
-	time.Sleep(timeOut)
-	stream.Stop()
-}
-
-func TestAddRemoveSubscription(t *testing.T) {
-	// Test 1: Local WebSocket server
-	go startServer()
-
-	// Start the streamer
-	stream, err := web_stream.New(
-		web_api.WsHost("localhost:8080"),
-		web_api.WsPath("/stream"),
-		web_api.SchemeWS)
-	assert.NoError(t, err)
-	assert.NotNil(t, stream)
-	stream.SetErrHandler(mockErrHandler)
-
-	err = stream.Start()
-	assert.Error(t, err)
-
-	err = stream.AddHandler("stream", mockHandler)
-	assert.NoError(t, err)
-	err = stream.Subscribe("stream")
-	assert.NoError(t, err)
-
-	err = stream.Start()
-	assert.NoError(t, err)
-
-	stream.RemoveHandler("default")
 
 	// Stop the streamer after some time
 	time.Sleep(timeOut)

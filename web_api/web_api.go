@@ -28,19 +28,6 @@ type (
 	}
 )
 
-// Функція виклику Web API
-func (wa *WebApi) Call(request *simplejson.Json) (response *simplejson.Json, err error) {
-	// Відправка запиту
-	err = wa.Send(request)
-	if err != nil {
-		return
-	}
-
-	// Читання відповіді
-	response, err = wa.Read()
-	return
-}
-
 // Серіалізація запиту в JSON
 func (wa *WebApi) Serialize(request *simplejson.Json) (requestBody []byte) {
 	requestBody, _ = request.MarshalJSON()
