@@ -1,41 +1,21 @@
-package web_api
+package web_socket
 
 import (
 	"fmt"
-	"net/http"
 	"time"
 
 	"github.com/bitly/go-simplejson"
 	"github.com/gorilla/websocket"
 )
 
-const (
-	// WsScheme is a scheme for WebSocket
-	SchemeWSS   WsScheme = "wss"
-	SchemeWS    WsScheme = "ws"
-	SchemeHTTP  WsScheme = "http"
-	SchemeHTTPS WsScheme = "https"
-)
-
-type (
-	WsScheme string
-	WsHost   string
-	WsPath   string
-	WebApi   struct {
-		silent     bool
-		conn       *websocket.Conn
-		errHandler func(err error)
-	}
-)
-
 // Серіалізація запиту в JSON
-func (wa *WebApi) Serialize(request *simplejson.Json) (requestBody []byte) {
+func (wa *WebSocketWrapper) Serialize(request *simplejson.Json) (requestBody []byte) {
 	requestBody, _ = request.MarshalJSON()
 	return
 }
 
 // Десеріалізація відповіді
-func (wa *WebApi) Deserialize(body []byte) (response *simplejson.Json) {
+func (wa *WebSocketWrapper) Deserialize(body []byte) (response *simplejson.Json) {
 	response, err := simplejson.NewJson(body)
 	if err != nil {
 		response = simplejson.New()
@@ -45,7 +25,7 @@ func (wa *WebApi) Deserialize(body []byte) (response *simplejson.Json) {
 }
 
 // Відправка запиту
-func (wa *WebApi) Send(request *simplejson.Json) (err error) {
+func (wa *WebSocketWrapper) Send(request *simplejson.Json) (err error) {
 	// Серіалізація запиту в JSON
 	requestBody := wa.Serialize(request)
 
@@ -59,7 +39,7 @@ func (wa *WebApi) Send(request *simplejson.Json) (err error) {
 }
 
 // Читання відповіді
-func (wa *WebApi) Read() (response *simplejson.Json, err error) {
+func (wa *WebSocketWrapper) Read() (response *simplejson.Json, err error) {
 	var (
 		body []byte
 	)
@@ -72,11 +52,11 @@ func (wa *WebApi) Read() (response *simplejson.Json, err error) {
 	return
 }
 
-func (wa *WebApi) Socket() *websocket.Conn {
+func (wa *WebSocketWrapper) Socket() *websocket.Conn {
 	return wa.conn
 }
 
-func (wa *WebApi) Close() (err error) {
+func (wa *WebSocketWrapper) Close() (err error) {
 	err = wa.conn.Close()
 	if err != nil {
 		err = fmt.Errorf("error closing connection: %v", err)
@@ -87,11 +67,11 @@ func (wa *WebApi) Close() (err error) {
 	return
 }
 
-func (wa *WebApi) SetSilentMode(silent bool) {
+func (wa *WebSocketWrapper) SetSilentMode(silent bool) {
 	wa.silent = silent
 }
 
-func (wa *WebApi) SetPingHandler(handler ...func(appData string) error) {
+func (wa *WebSocketWrapper) SetPingHandler(handler ...func(appData string) error) {
 	// Встановлення обробника для ping повідомлень
 	if len(handler) == 0 {
 		wa.conn.SetPingHandler(func(appData string) error {
@@ -106,43 +86,20 @@ func (wa *WebApi) SetPingHandler(handler ...func(appData string) error) {
 	}
 }
 
-func (wa *WebApi) SetErrorHandler(handler func(err error)) {
+func (wa *WebSocketWrapper) SetErrorHandler(handler func(err error)) {
 	wa.errHandler = handler
 }
 
-func (wa *WebApi) errorHandler(err error) {
+func (wa *WebSocketWrapper) errorHandler(err error) {
 	if wa.errHandler != nil && !wa.silent {
 		wa.errHandler(err)
 	}
 }
 
-func (wa *WebApi) IsOpen() bool {
+func (wa *WebSocketWrapper) IsOpen() bool {
 	return wa.conn != nil
 }
 
-func (wa *WebApi) IsClosed() bool {
+func (wa *WebSocketWrapper) IsClosed() bool {
 	return wa.conn == nil
-}
-
-func New(
-	host WsHost,
-	path WsPath,
-	scheme ...WsScheme) (socket *WebApi, err error) { // Підключення до WebSocket
-	if len(scheme) == 0 {
-		scheme = append(scheme, SchemeWSS)
-	}
-	Dialer := websocket.Dialer{
-		Proxy:             http.ProxyFromEnvironment,
-		HandshakeTimeout:  45 * time.Second,
-		EnableCompression: false,
-	}
-	conn, _, err := Dialer.Dial(string(scheme[0])+"://"+string(host)+string(path), nil)
-	if err != nil {
-		return
-	}
-	socket = &WebApi{
-		silent: true,
-		conn:   conn,
-	}
-	return
 }

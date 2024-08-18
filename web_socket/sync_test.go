@@ -1,37 +1,29 @@
-package web_api_test
+package web_socket_test
 
 import (
 	"fmt"
 	"log"
 	"net/http"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/bitly/go-simplejson"
-	web_api "github.com/fr0ster/turbo-restler/web_api"
+	"github.com/fr0ster/turbo-restler/web_socket"
 	"github.com/gorilla/websocket"
 	"github.com/sirupsen/logrus"
 )
 
-var (
-	quit chan struct{}
-	once sync.Once
-)
-
 // Піднімаємо WebSocket сервер
 func startWebSocketServer() {
-	go func() {
-		once.Do(func() {
-			http.HandleFunc("/ws", handleWithParams)
+	once.Do(func() {
+		http.HandleFunc("/ws", handleWithParams)
 
-			logrus.Println("Starting server on :8080")
-			log.Fatal(http.ListenAndServe(":8080", nil))
-		})
-	}()
+		logrus.Println("Starting server on :8081")
+		log.Fatal(http.ListenAndServe(":8081", nil))
+	})
 }
 
-var upgrader = websocket.Upgrader{
+var upgraderSync = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
 		return true
 	},
@@ -39,7 +31,7 @@ var upgrader = websocket.Upgrader{
 
 // Обробник для методу з параметрами
 func handleWithParams(w http.ResponseWriter, r *http.Request) {
-	conn, err := upgrader.Upgrade(w, r, nil)
+	conn, err := upgraderSync.Upgrade(w, r, nil)
 	if err != nil {
 		log.Println("Upgrade error:", err)
 		return
@@ -82,9 +74,9 @@ func handleWithParams(w http.ResponseWriter, r *http.Request) {
 }
 
 func TestWebApi(t *testing.T) {
-	startWebSocketServer()
+	go startWebSocketServer()
 	// Create a new WebApi instance
-	api, err := web_api.New(web_api.WsHost("localhost:8080"), web_api.WsPath("/ws"), web_api.SchemeWS)
+	api, err := web_socket.New(web_socket.WsHost("localhost:8081"), web_socket.WsPath("/ws"), web_socket.SchemeWS)
 	if err != nil {
 		log.Fatal("New error:", err)
 	}

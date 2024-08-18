@@ -1,26 +1,19 @@
-package web_stream_test
+package web_socket_test
 
 import (
 	"net/http"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/bitly/go-simplejson"
-	"github.com/fr0ster/turbo-restler/web_api"
-	"github.com/fr0ster/turbo-restler/web_stream"
+	"github.com/fr0ster/turbo-restler/web_socket"
 	"github.com/gorilla/websocket"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 )
 
-const (
-	timeOut = 1 * time.Second
-)
-
 var (
-	doneC     chan struct{} = make(chan struct{})
-	timeCount               = 10
+	doneC chan struct{} = make(chan struct{})
 )
 
 // Mock handler for WebSocket messages
@@ -39,12 +32,11 @@ func mockErrHandler(err error) {
 }
 
 var (
-	upgrader = websocket.Upgrader{}
-	once     = new(sync.Once)
+	upgraderAsync = websocket.Upgrader{}
 )
 
 func handler(w http.ResponseWriter, r *http.Request) {
-	conn, err := upgrader.Upgrade(w, r, nil)
+	conn, err := upgraderAsync.Upgrade(w, r, nil)
 	if err != nil {
 		logrus.Print("upgrade:", err)
 		return
@@ -75,10 +67,10 @@ func TestStartLocalStreamer(t *testing.T) {
 	go startServer()
 
 	// Start the streamer
-	stream, err := web_stream.New(
-		web_api.WsHost("localhost:8080"),
-		web_api.WsPath("/stream"),
-		web_api.SchemeWS)
+	stream, err := web_socket.New(
+		web_socket.WsHost("localhost:8080"),
+		web_socket.WsPath("/stream"),
+		web_socket.SchemeWS)
 	assert.NoError(t, err)
 	assert.NotNil(t, stream)
 	stream.AddHandler("default", mockHandler).SetErrHandler(mockErrHandler)
@@ -94,10 +86,10 @@ func TestStartLocalStreamer(t *testing.T) {
 func TestRemoteStreamer(t *testing.T) {
 	// Test 2: Remote WebSocket server
 	// Start the streamer
-	stream, err := web_stream.New(
-		web_api.WsHost("fstream.binancefuture.com/ws"),
-		web_api.WsPath("/btcusdt@trade"),
-		web_api.SchemeWSS)
+	stream, err := web_socket.New(
+		web_socket.WsHost("fstream.binancefuture.com/ws"),
+		web_socket.WsPath("/btcusdt@trade"),
+		web_socket.SchemeWSS)
 	assert.NoError(t, err)
 	assert.NotNil(t, stream)
 	stream.AddHandler("default", mockHandler).SetErrHandler(mockErrHandler)

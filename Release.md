@@ -1,5 +1,16 @@
 # Release Notes for Turbo-Restler
 
+## v0.2.15
+
+### Release Date: 2024-08-17
+
+### Changes
+- **Turbo-Restler**:
+  - **WebSocketWrapper**:
+    - Merged the functionality of `WebApi` and `WebStream` into a single `WebSocketWrapper` to streamline and simplify the codebase.
+
+---
+
 ## v0.2.14
 
 ### Release Date: 2024-08-17
