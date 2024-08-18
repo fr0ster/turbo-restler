@@ -10,6 +10,7 @@ func (ws *WebSocketWrapper) Start() (err error) {
 		for {
 			select {
 			case <-ws.quit:
+				ws.quit = make(chan struct{})
 				return
 			default:
 				response, err := ws.Read()

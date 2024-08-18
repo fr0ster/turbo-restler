@@ -81,6 +81,11 @@ func TestStartLocalStreamer(t *testing.T) {
 	// Stop the streamer after some time
 	time.Sleep(timeOut)
 	stream.Stop()
+
+	err = stream.Start()
+	assert.NoError(t, err)
+	time.Sleep(timeOut)
+	stream.Stop()
 }
 
 func TestRemoteStreamer(t *testing.T) {

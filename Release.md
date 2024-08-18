@@ -1,8 +1,19 @@
 # Release Notes for Turbo-Restler
 
+## v0.2.16
+
+### Release Date: 2024-08-18
+
+### Changes
+- **Turbo-Restler**:
+  - **WebSocketWrapper**:
+    - Added update to the quit channel to stop the loop, allowing for the possibility of restarting the loop.
+
+---
+
 ## v0.2.15
 
-### Release Date: 2024-08-17
+### Release Date: 2024-08-18
 
 ### Changes
 - **Turbo-Restler**:
@@ -13,7 +24,7 @@
 
 ## v0.2.14
 
-### Release Date: 2024-08-17
+### Release Date: 2024-08-18
 
 ### Changes
 - **Turbo-Restler**:
