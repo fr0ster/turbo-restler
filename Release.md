@@ -1,5 +1,18 @@
 # Release Notes for Turbo-Restler
 
+## v0.2.14
+
+### Release Date: 2024-08-17
+
+### Changes
+- **Turbo-Restler**:
+  - **WebApi**:
+    - Removed `Call` method as it assumes that the WebSocket is used exclusively for this request and no external information can appear in the WebSocket.
+  - **WebStream**:
+    - Removed `Subscribe`, `ListOfSubscriptions`, and `Unsubscribe` methods as they are unnecessary at this level of abstraction and will be moved to `turbo-cambitor`.
+
+---
+
 ## v0.2.13
 
 ### Release Date: 2024-08-18
