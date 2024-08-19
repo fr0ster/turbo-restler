@@ -1,5 +1,19 @@
 # Release Notes for Turbo-Restler
 
+## v0.2.18
+
+### Release Date: 2024-08-19
+
+### Changes
+- **Turbo-Restler**:
+  - **WebSocketWrapper**:
+    - Removed `Start` and `Stop` methods, making the start of the read loop from the WebSocket implicit when a handler is added.
+    - Made the stop of the read loop implicit when the last handler is removed.
+    - Added waiting for the start and stop of the loop.
+    - Added a mutex to ensure that only one loop reads from the WebSocket at a time.
+
+---
+
 ## v0.2.17
 
 ### Release Date: 2024-08-18

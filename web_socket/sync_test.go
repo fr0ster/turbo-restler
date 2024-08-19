@@ -5,7 +5,6 @@ import (
 	"log"
 	"net/http"
 	"testing"
-	"time"
 
 	"github.com/bitly/go-simplejson"
 	"github.com/fr0ster/turbo-restler/web_socket"
@@ -15,7 +14,7 @@ import (
 
 // Піднімаємо WebSocket сервер
 func startWebSocketServer() {
-	once.Do(func() {
+	onceSync.Do(func() {
 		http.HandleFunc("/ws", handleWithParams)
 
 		logrus.Println("Starting server on :8081")
@@ -100,23 +99,19 @@ func TestWebApi(t *testing.T) {
 	fmt.Println("Response data:", response)
 
 	// Відправка запиту з параметрами в JSON
-	requestBody := api.Serialize(request)
-	err = api.Socket().WriteMessage(websocket.TextMessage, requestBody)
+	err = api.Send(request)
 	if err != nil {
 		logrus.Errorf("error sending message: %v", err)
 		return
 	}
 
 	// Десеріалізація відповіді JSON в simplejson
-	_, body, err := api.Socket().ReadMessage()
+	data, err := api.Read()
 	if err != nil {
 		logrus.Errorf("error reading message: %v", err)
 		return
 	}
-	data := api.Deserialize(body)
 	fmt.Println("Response data:", data)
 
 	// TODO: Add more assertions for the request sending process
-	time.Sleep(1 * time.Second)
-	logrus.Println("Server stopped")
 }

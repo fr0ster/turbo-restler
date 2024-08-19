@@ -1,6 +1,7 @@
 package web_socket
 
 import (
+	"context"
 	"sync"
 	"time"
 
@@ -29,10 +30,12 @@ type (
 	WebSocketWrapper struct {
 		silent      bool
 		conn        *websocket.Conn
+		ctx         context.Context
+		cancel      context.CancelFunc
 		callBackMap WsHandlerMap
 		errHandler  ErrHandler
-		quit        chan struct{}
-		timeOut     time.Duration
 		mutex       *sync.Mutex
+		doneC       chan struct{}
+		timeOut     time.Duration
 	}
 )

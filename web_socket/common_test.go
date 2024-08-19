@@ -6,11 +6,12 @@ import (
 )
 
 const (
-	timeOut = 1 * time.Second
+	timeOut = 100 * time.Millisecond
 )
 
 var (
-	quit      chan struct{} = make(chan struct{})
-	timeCount               = 10
-	once                    = new(sync.Once)
+	quit chan struct{} = make(chan struct{})
+	// timeCount               = 10
+	onceSync  = new(sync.Once)
+	onceAsync = new(sync.Once)
 )
