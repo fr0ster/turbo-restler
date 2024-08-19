@@ -30,15 +30,11 @@ func (socket *WebSocketWrapper) printError(err error) {
 func New(
 	host WsHost,
 	path WsPath,
-	scheme WsScheme,
-	timeOut ...time.Duration) (socket *WebSocketWrapper, err error) { // Підключення до WebSocket
+	scheme WsScheme) (socket *WebSocketWrapper, err error) { // Підключення до WebSocket
 	Dialer := websocket.Dialer{
 		Proxy:             http.ProxyFromEnvironment,
 		HandshakeTimeout:  45 * time.Second,
 		EnableCompression: false,
-	}
-	if len(timeOut) == 0 {
-		timeOut = append(timeOut, 5*time.Second)
 	}
 	conn, _, err := Dialer.Dial(string(scheme)+"://"+string(host)+string(path), nil)
 	if err != nil {
