@@ -9,28 +9,29 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-func (socket *WebSocketWrapper) Lock() {
-	socket.mutex.Lock()
+func (ws *WebSocketWrapper) Lock() {
+	ws.mutex.Lock()
 }
 
-func (socket *WebSocketWrapper) Unlock() {
-	socket.mutex.Unlock()
+func (ws *WebSocketWrapper) Unlock() {
+	ws.mutex.Unlock()
 }
 
-func (socket *WebSocketWrapper) TryLock() bool {
-	return socket.mutex.TryLock()
+func (ws *WebSocketWrapper) TryLock() bool {
+	return ws.mutex.TryLock()
 }
 
-func (socket *WebSocketWrapper) printError(err error) {
-	if !socket.silent && socket.errHandler != nil {
-		socket.errHandler(err)
+func (ws *WebSocketWrapper) printError(err error) {
+	if !ws.silent && ws.errHandler != nil {
+		ws.errHandler(err)
 	}
 }
 
 func New(
 	host WsHost,
 	path WsPath,
-	scheme WsScheme) (socket *WebSocketWrapper, err error) { // Підключення до WebSocket
+	scheme WsScheme,
+	timeOut ...time.Duration) (ws *WebSocketWrapper, err error) { // Підключення до WebSocket
 	Dialer := websocket.Dialer{
 		Proxy:             http.ProxyFromEnvironment,
 		HandshakeTimeout:  45 * time.Second,
@@ -41,13 +42,17 @@ func New(
 		return
 	}
 	conn.SetReadLimit(655350)
-	socket = &WebSocketWrapper{
+	if len(timeOut) == 0 {
+		timeOut = append(timeOut, 10*time.Second)
+	}
+	ws = &WebSocketWrapper{
 		silent:      true,
 		conn:        conn,
 		callBackMap: make(WsHandlerMap, 0),
 		mutex:       &sync.Mutex{},
 		doneC:       make(chan struct{}, 1),
+		timeOut:     timeOut[0],
 	}
-	socket.ctx, socket.cancel = context.WithCancel(context.Background())
+	ws.ctx, ws.cancel = context.WithCancel(context.Background())
 	return
 }

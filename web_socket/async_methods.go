@@ -2,6 +2,7 @@ package web_socket
 
 import (
 	"fmt"
+	"time"
 )
 
 func (ws *WebSocketWrapper) loop() (err error) {
@@ -53,6 +54,11 @@ func (ws *WebSocketWrapper) AddHandler(handlerId string, handler WsHandler) *Web
 	if err != nil {
 		ws.printError(err)
 	}
+	select {
+	case <-ws.doneC: // Wait for the loop to start
+	case <-time.After(ws.timeOut): // Timeout
+		ws.printError(fmt.Errorf("timeout"))
+	}
 	return ws
 }
 
@@ -66,6 +72,11 @@ func (ws *WebSocketWrapper) RemoveHandler(handlerId string) *WebSocketWrapper {
 	}
 	if len(ws.callBackMap) == 0 {
 		ws.cancel()
+		select {
+		case <-ws.doneC: // Wait for the loop to stop
+		case <-time.After(ws.timeOut): // Timeout
+			ws.printError(fmt.Errorf("timeout"))
+		}
 	}
 	return ws
 }

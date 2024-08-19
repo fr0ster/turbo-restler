@@ -9,13 +9,13 @@ import (
 )
 
 // Серіалізація запиту в JSON
-func (wa *WebSocketWrapper) Serialize(request *simplejson.Json) (requestBody []byte) {
+func (ws *WebSocketWrapper) Serialize(request *simplejson.Json) (requestBody []byte) {
 	requestBody, _ = request.MarshalJSON()
 	return
 }
 
 // Десеріалізація відповіді
-func (wa *WebSocketWrapper) Deserialize(body []byte) (response *simplejson.Json) {
+func (ws *WebSocketWrapper) Deserialize(body []byte) (response *simplejson.Json) {
 	response, err := simplejson.NewJson(body)
 	if err != nil {
 		response = simplejson.New()
@@ -25,12 +25,12 @@ func (wa *WebSocketWrapper) Deserialize(body []byte) (response *simplejson.Json)
 }
 
 // Відправка запиту
-func (wa *WebSocketWrapper) Send(request *simplejson.Json) (err error) {
+func (ws *WebSocketWrapper) Send(request *simplejson.Json) (err error) {
 	// Серіалізація запиту в JSON
-	requestBody := wa.Serialize(request)
+	requestBody := ws.Serialize(request)
 
 	// Відправка запиту
-	err = wa.conn.WriteMessage(websocket.TextMessage, requestBody)
+	err = ws.conn.WriteMessage(websocket.TextMessage, requestBody)
 	if err != nil {
 		err = fmt.Errorf("error sending message: %v", err)
 		return
@@ -39,67 +39,67 @@ func (wa *WebSocketWrapper) Send(request *simplejson.Json) (err error) {
 }
 
 // Читання відповіді
-func (wa *WebSocketWrapper) Read() (response *simplejson.Json, err error) {
+func (ws *WebSocketWrapper) Read() (response *simplejson.Json, err error) {
 	var (
 		body []byte
 	)
-	_, body, err = wa.conn.ReadMessage()
+	_, body, err = ws.conn.ReadMessage()
 	if err != nil {
 		err = fmt.Errorf("error reading message: %v", err)
 		return
 	}
-	response = wa.Deserialize(body)
+	response = ws.Deserialize(body)
 	return
 }
 
-func (wa *WebSocketWrapper) Socket() *websocket.Conn {
-	return wa.conn
+func (ws *WebSocketWrapper) Socket() *websocket.Conn {
+	return ws.conn
 }
 
-func (wa *WebSocketWrapper) Close() (err error) {
-	err = wa.conn.Close()
+func (ws *WebSocketWrapper) Close() (err error) {
+	err = ws.conn.Close()
 	if err != nil {
 		err = fmt.Errorf("error closing connection: %v", err)
 		return
 	}
-	wa.conn = nil
-	wa = nil
+	ws.conn = nil
+	ws = nil
 	return
 }
 
-func (wa *WebSocketWrapper) SetSilentMode(silent bool) {
-	wa.silent = silent
+func (ws *WebSocketWrapper) SetSilentMode(silent bool) {
+	ws.silent = silent
 }
 
-func (wa *WebSocketWrapper) SetPingHandler(handler ...func(appData string) error) {
+func (ws *WebSocketWrapper) SetPingHandler(handler ...func(appData string) error) {
 	// Встановлення обробника для ping повідомлень
 	if len(handler) == 0 {
-		wa.conn.SetPingHandler(func(appData string) error {
-			err := wa.conn.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(time.Second))
+		ws.conn.SetPingHandler(func(appData string) error {
+			err := ws.conn.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(time.Second))
 			if err != nil {
-				wa.errorHandler(fmt.Errorf("error sending pong: %v", err))
+				ws.errorHandler(fmt.Errorf("error sending pong: %v", err))
 			}
 			return nil
 		})
 	} else {
-		wa.conn.SetPingHandler(handler[0])
+		ws.conn.SetPingHandler(handler[0])
 	}
 }
 
-func (wa *WebSocketWrapper) SetErrorHandler(handler func(err error)) {
-	wa.errHandler = handler
+func (ws *WebSocketWrapper) SetErrorHandler(handler func(err error)) {
+	ws.errHandler = handler
 }
 
-func (wa *WebSocketWrapper) errorHandler(err error) {
-	if wa.errHandler != nil && !wa.silent {
-		wa.errHandler(err)
+func (ws *WebSocketWrapper) errorHandler(err error) {
+	if ws.errHandler != nil && !ws.silent {
+		ws.errHandler(err)
 	}
 }
 
-func (wa *WebSocketWrapper) IsOpen() bool {
-	return wa.conn != nil
+func (ws *WebSocketWrapper) IsOpen() bool {
+	return ws.conn != nil
 }
 
-func (wa *WebSocketWrapper) IsClosed() bool {
-	return wa.conn == nil
+func (ws *WebSocketWrapper) IsClosed() bool {
+	return ws.conn == nil
 }
