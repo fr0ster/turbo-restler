@@ -1,5 +1,16 @@
 # Release Notes for Turbo-Restler
 
+## v0.2.19
+
+### Release Date: 2024-08-19
+
+### Changes
+- **Turbo-Restler**:
+  - **WebSocketWrapper**:
+    - Discontinued the use of context with timeout for managing the read loop.
+
+---
+
 ## v0.2.18
 
 ### Release Date: 2024-08-19
