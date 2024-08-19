@@ -51,12 +51,7 @@ func New(
 		callBackMap: make(WsHandlerMap, 0),
 		mutex:       &sync.Mutex{},
 		doneC:       make(chan struct{}, 1),
-		timeOut:     timeOut[0],
 	}
-	if len(timeOut) == 0 {
-		socket.ctx, socket.cancel = context.WithCancel(context.Background())
-	} else {
-		socket.ctx, socket.cancel = context.WithTimeout(context.Background(), timeOut[0])
-	}
+	socket.ctx, socket.cancel = context.WithCancel(context.Background())
 	return
 }
