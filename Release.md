@@ -1,5 +1,15 @@
 # Release Notes for Turbo-Restler
 
+## v0.2.20
+
+### Release Date: 2024-08-20
+
+### Refactor
+- Refactor `WebSocketWrapper` to consolidate functionality and improve code organization.
+  - This commit merges the functionality of `WebApi` and `WebStream` into a single `WebSocketWrapper` struct. This consolidation improves the organization and readability of the codebase.
+
+---
+
 ## v0.2.19
 
 ### Release Date: 2024-08-19
