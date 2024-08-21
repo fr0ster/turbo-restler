@@ -1,5 +1,12 @@
 # Release Notes for Turbo-Restler
 
+## v0.2.22
+
+### Fix
+- Fixed a bug in `CallRestAPI` function, corrected the key for `apiKey`.
+
+---
+
 ## v0.2.21
 
 ### Chore

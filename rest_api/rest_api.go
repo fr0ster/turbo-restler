@@ -38,9 +38,9 @@ func CallRestAPI(baseUrl ApiBaseUrl, method HttpMethod, params *simplejson.Json,
 		return nil, fmt.Errorf("error creating request: %v", err)
 	}
 
-	if params != nil && params.Get("api_key").MustString() != "" {
+	if params != nil && params.Get("apiKey").MustString() != "" {
 		// Add headers
-		req.Header.Set("X-MBX-APIKEY", params.Get("api_key").MustString())
+		req.Header.Set("X-MBX-APIKEY", params.Get("apiKey").MustString())
 	}
 
 	// Execute the request
