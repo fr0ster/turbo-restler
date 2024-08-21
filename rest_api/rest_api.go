@@ -5,11 +5,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"strconv"
-	"time"
 
 	"github.com/bitly/go-simplejson"
-	"github.com/fr0ster/turbo-signer/signature"
 )
 
 type (
@@ -19,7 +16,7 @@ type (
 )
 
 // Функція виклику REST API
-func CallRestAPI(baseUrl ApiBaseUrl, method HttpMethod, params *simplejson.Json, endpoint EndPoint, sign signature.Sign) (
+func CallRestAPI(baseUrl ApiBaseUrl, method HttpMethod, params *simplejson.Json, endpoint EndPoint) (
 	response *simplejson.Json, err error) {
 	// Construct the URL
 	apiUrl := string(baseUrl) + string(endpoint)
@@ -32,15 +29,6 @@ func CallRestAPI(baseUrl ApiBaseUrl, method HttpMethod, params *simplejson.Json,
 		}
 	}
 
-	// Add timestamp to the query parameters
-	timestamp := strconv.FormatInt(time.Now().UnixNano()/int64(time.Millisecond), 10)
-	v.Set("timestamp", timestamp)
-
-	// Create the signature
-	queryString := v.Encode()
-	signature := sign.CreateSignature(queryString)
-	v.Set("signature", signature)
-
 	// Create the full URL with query parameters
 	fullUrl := apiUrl + "?" + v.Encode()
 
@@ -50,8 +38,10 @@ func CallRestAPI(baseUrl ApiBaseUrl, method HttpMethod, params *simplejson.Json,
 		return nil, fmt.Errorf("error creating request: %v", err)
 	}
 
-	// Add headers
-	req.Header.Set("X-MBX-APIKEY", sign.GetAPIKey())
+	if params != nil && params.Get("api_key").MustString() != "" {
+		// Add headers
+		req.Header.Set("X-MBX-APIKEY", params.Get("api_key").MustString())
+	}
 
 	// Execute the request
 	client := &http.Client{}

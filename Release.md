@@ -1,5 +1,12 @@
 # Release Notes for Turbo-Restler
 
+## v0.2.21
+
+### Chore
+- Upgraded to `turbo-signer` v0.1.5.
+
+---
+
 ## v0.2.20
 
 ### Release Date: 2024-08-20
