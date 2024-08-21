@@ -12,24 +12,10 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// var (
-// 	doneC chan struct{} = make(chan struct{})
-// )
-
 // Mock handler for WebSocket messages
 func mockHandler(message *simplejson.Json) {
-	// if timeCount < 0 {
-	// 	doneC <- struct{}{}
-	// 	return
-	// }
-	// timeCount--
 	logrus.Infof("Received message: %+v", message)
 }
-
-// // Mock error handler for WebSocket errors
-// func mockErrHandler(err error) {
-// 	logrus.Errorf("Error: %v", err)
-// }
 
 var (
 	upgraderAsync = websocket.Upgrader{}

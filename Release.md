@@ -1,5 +1,14 @@
 # Release Notes for Turbo-Restler
 
+## v0.2.26
+
+### Release Date: 2024-08-21
+
+### Feat
+- Changed parameters in `CallRestAPI` to `req *http.Request`.
+
+---
+
 ## v0.2.25
 
 ### Release Date: 2024-08-21

@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/bitly/go-simplejson"
 
+	"github.com/fr0ster/turbo-restler/rest_api"
 	signature "github.com/fr0ster/turbo-signer/signature"
 
 	"github.com/stretchr/testify/assert"
@@ -99,63 +101,85 @@ func (s *Server) Start() {
 	http.ListenAndServe(":8080", nil)
 }
 
+var (
+	apiKey   string  = "your_api_key"
+	sign             = signature.NewSignHMAC(signature.PublicKey("your_api_key"), signature.SecretKey("your_secret_key"))
+	server   *Server = NewServer(sign)
+	syncOnce         = new(sync.Once)
+)
+
+func startServer() {
+	syncOnce.Do(func() {
+		go server.Start()
+	})
+}
+
+func param2request(params *simplejson.Json, baseUrl, endpoint, method, apiKey string) (req *http.Request, err error) {
+	var (
+		fullEndpoint string
+		paramsStr    string
+	)
+	paramsStr, err = signature.ConvertSimpleJSONToString(params)
+	if err != nil {
+		return
+	}
+	if paramsStr != "" {
+		fullEndpoint = endpoint + "?" + paramsStr
+	} else {
+		fullEndpoint = endpoint
+	}
+	req, err = http.NewRequest(method, baseUrl+fullEndpoint, nil)
+	if err != nil {
+		return
+	}
+	req.Header.Set("X-MBX-APIKEY", apiKey)
+	return
+}
+
 func TestCallRestAPI(t *testing.T) {
-	apiKey := "your_api_key"
-	secretKey := "your_secret_key"
-	sign := signature.NewSignHMAC(signature.PublicKey(apiKey), signature.SecretKey(secretKey))
-	server := NewServer(sign)
-	go server.Start()
+	startServer()
 	params := simplejson.New()
 	params.Set("timestamp", fmt.Sprintf("%d", time.Now().UnixNano()/int64(time.Millisecond)))
 	params, err := sign.SignParameters(params)
 	assert.Nil(t, err)
 
-	paramsStr := ""
-	for key, value := range params.MustMap() {
-		paramsStr += fmt.Sprintf("%v=%v&", key, value)
-	}
-	paramsStr = paramsStr[:len(paramsStr)-1]
-	baseUrl := "https://testnet.binance.vision"
-	endpoint := "/api/v3/account"
-	if paramsStr != "" {
-		endpoint = endpoint + "?" + paramsStr
-	}
-	req, err := http.NewRequest("GET", baseUrl+endpoint, nil)
-	req.Header.Set("X-MBX-APIKEY", apiKey)
-	// response1, err := rest_api.CallRestAPI("http://localhost:8080", "GET", params, "/no-params")
-	// assert.Nil(t, err)
-	// assert.Equal(t, "No params endpoint", response1.Get("message").MustString())
-	// params = simplejson.New()
-	// params.Set("param1", "value1")
-	// params.Set("param2", "value2")
-	// params.Set("param3", "value3")
-	// params.Set("param4", "value4")
-	// params.Set("param5", "value5")
-	// params.Set("timestamp", fmt.Sprintf("%d", time.Now().UnixNano()/int64(time.Millisecond)))
-	// params, err = sign.SignParameters(params)
-	// assert.Nil(t, err)
-	// response2, err := rest_api.CallRestAPI("http://localhost:8080", "GET", params, "/params")
-	// assert.NoError(t, err)
-	// assert.Equal(t, "Params endpoint", response2.Get("message").MustString())
+	req, err := param2request(params, "http://localhost:8080", "/no-params", "GET", apiKey)
+
+	assert.NoError(t, err)
+	response1, err := rest_api.CallRestAPI(req)
+	assert.Nil(t, err)
+	assert.Equal(t, "No params endpoint", response1.Get("message").MustString())
+	params = simplejson.New()
+	params.Set("param1", "value1")
+	params.Set("param2", "value2")
+	params.Set("param3", "value3")
+	params.Set("param4", "value4")
+	params.Set("param5", "value5")
+	params.Set("timestamp", fmt.Sprintf("%d", time.Now().UnixNano()/int64(time.Millisecond)))
+	params, err = sign.SignParameters(params)
+	assert.Nil(t, err)
+	req, err = param2request(params, "http://localhost:8080", "/params", "GET", apiKey)
+	assert.NoError(t, err)
+	response2, err := rest_api.CallRestAPI(req)
+	assert.NoError(t, err)
+	assert.Equal(t, "Params endpoint", response2.Get("message").MustString())
 }
 
 func TestCallRestAPIWithError(t *testing.T) {
-	apiKey := "your_api_key"
-	secretKey := "your_secret_key"
-	sign := signature.NewSignHMAC(signature.PublicKey(apiKey), signature.SecretKey(secretKey))
-	server := NewServer(sign)
-	go server.Start()
-	// params := simplejson.New()
-	// params.Set("param1", "value1")
-	// params.Set("param2", "value2")
-	// params.Set("param3", "value3")
-	// params.Set("param4", "value4")
-	// params.Set("param5", "value5")
-	// params.Set("param7", "value7") // Add an extra parameter
-	// params.Set("timestamp", fmt.Sprintf("%d", time.Now().UnixNano()/int64(time.Millisecond)))
-	// params, err := sign.SignParameters(params)
-	// assert.Nil(t, err)
-	// response2, err := rest_api.CallRestAPI("http://localhost:8080", "GET", params, "/params")
-	// assert.Error(t, err)
-	// assert.Equal(t, "Invalid signature\n", response2.Get("message").MustString())
+	startServer()
+	params := simplejson.New()
+	params.Set("param1", "value1")
+	params.Set("param2", "value2")
+	params.Set("param3", "value3")
+	params.Set("param4", "value4")
+	params.Set("param5", "value5")
+	params.Set("param7", "value7") // Add an extra parameter
+	params.Set("timestamp", fmt.Sprintf("%d", time.Now().UnixNano()/int64(time.Millisecond)))
+	params, err := sign.SignParameters(params)
+	assert.Nil(t, err)
+	req, err := param2request(params, "http://localhost:8080", "/params", "GET", apiKey)
+	assert.NoError(t, err)
+	response2, err := rest_api.CallRestAPI(req)
+	assert.Error(t, err)
+	assert.Equal(t, "Invalid signature\n", response2.Get("message").MustString())
 }
