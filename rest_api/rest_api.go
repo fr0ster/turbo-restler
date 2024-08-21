@@ -16,7 +16,12 @@ type (
 )
 
 // Функція виклику REST API
-func CallRestAPI(baseUrl ApiBaseUrl, method HttpMethod, params *simplejson.Json, endpoint EndPoint) (
+func CallRestAPI(
+	baseUrl ApiBaseUrl,
+	method HttpMethod,
+	params *simplejson.Json,
+	endpoint EndPoint,
+	apiKey ...string) (
 	response *simplejson.Json, err error) {
 	// Construct the URL
 	apiUrl := string(baseUrl) + string(endpoint)
@@ -43,7 +48,10 @@ func CallRestAPI(baseUrl ApiBaseUrl, method HttpMethod, params *simplejson.Json,
 		return nil, fmt.Errorf("error creating request: %v", err)
 	}
 
-	if params != nil && params.Get("apiKey").MustString() != "" {
+	if len(apiKey) > 0 && apiKey[0] != "" {
+		// Add headers
+		req.Header.Set("X-MBX-APIKEY", apiKey[0])
+	} else if params != nil && params.Get("apiKey").MustString() != "" {
 		// Add headers
 		req.Header.Set("X-MBX-APIKEY", params.Get("apiKey").MustString())
 	}

@@ -1,5 +1,12 @@
 # Release Notes for Turbo-Restler
 
+## v0.2.24
+
+### Feat
+- Added an optional parameter `apiKey` to `CallRestAPI` for cases where the `apikey` parameter cannot be passed.
+
+---
+
 ## v0.2.23
 
 ### Fix
