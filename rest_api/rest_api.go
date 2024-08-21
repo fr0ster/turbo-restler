@@ -30,7 +30,12 @@ func CallRestAPI(baseUrl ApiBaseUrl, method HttpMethod, params *simplejson.Json,
 	}
 
 	// Create the full URL with query parameters
-	fullUrl := apiUrl + "?" + v.Encode()
+	fullUrl := ""
+	if len(v) > 0 {
+		fullUrl = apiUrl + "?" + v.Encode()
+	} else {
+		fullUrl = apiUrl
+	}
 
 	// Prepare the HTTP request
 	req, err := http.NewRequest(string(method), fullUrl, nil)
