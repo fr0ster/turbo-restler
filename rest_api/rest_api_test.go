@@ -116,8 +116,24 @@ func TestCallRestAPI(t *testing.T) {
 	params.Set("param4", "value4")
 	params.Set("param5", "value5")
 	response2, err := rest_api.CallRestAPI("http://localhost:8080", "GET", params, "/params", sign)
-	assert.Nil(t, err)
-	if response2 != nil {
-		assert.Equal(t, "Params endpoint", response2.Get("message").MustString())
-	}
+	assert.NoError(t, err)
+	assert.Equal(t, "Params endpoint", response2.Get("message").MustString())
+}
+
+func TestCallRestAPIWithError(t *testing.T) {
+	apiKey := "your_api_key"
+	secretKey := "your_secret_key"
+	sign := signature.NewSignHMAC(signature.PublicKey(apiKey), signature.SecretKey(secretKey))
+	server := NewServer(sign)
+	go server.Start()
+	params := simplejson.New()
+	params.Set("param1", "value1")
+	params.Set("param2", "value2")
+	params.Set("param3", "value3")
+	params.Set("param4", "value4")
+	params.Set("param5", "value5")
+	params.Set("param7", "value7") // Add an extra parameter
+	response2, err := rest_api.CallRestAPI("http://localhost:8080", "GET", params, "/params", sign)
+	assert.Error(t, err)
+	assert.Equal(t, "Invalid signature\n", response2.Get("message").MustString())
 }

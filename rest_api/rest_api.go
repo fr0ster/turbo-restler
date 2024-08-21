@@ -70,12 +70,13 @@ func CallRestAPI(baseUrl ApiBaseUrl, method HttpMethod, params *simplejson.Json,
 	// Parse the response body as JSON
 	response, err = simplejson.NewJson(body)
 	if err != nil {
-		return nil, fmt.Errorf("error parsing JSON response: %v", err)
+		response = simplejson.New()
+		response.Set("message", string(body))
 	}
 
 	// Check for HTTP errors
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP error: %s", resp.Status)
+		return response, fmt.Errorf("HTTP error: %s", resp.Status)
 	}
 
 	return response, nil
