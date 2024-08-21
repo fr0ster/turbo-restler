@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 
 	"github.com/bitly/go-simplejson"
 )
@@ -16,46 +15,8 @@ type (
 )
 
 // Функція виклику REST API
-func CallRestAPI(
-	baseUrl ApiBaseUrl,
-	method HttpMethod,
-	params *simplejson.Json,
-	endpoint EndPoint,
-	apiKey ...string) (
+func CallRestAPI(req *http.Request) (
 	response *simplejson.Json, err error) {
-	// Construct the URL
-	apiUrl := string(baseUrl) + string(endpoint)
-
-	// Prepare the query parameters
-	v := url.Values{}
-	if params != nil {
-		for key, value := range params.MustMap() {
-			v.Set(key, fmt.Sprintf("%v", value))
-		}
-	}
-
-	// Create the full URL with query parameters
-	fullUrl := ""
-	if len(v) > 0 {
-		fullUrl = apiUrl + "?" + v.Encode()
-	} else {
-		fullUrl = apiUrl
-	}
-
-	// Prepare the HTTP request
-	req, err := http.NewRequest(string(method), fullUrl, nil)
-	if err != nil {
-		return nil, fmt.Errorf("error creating request: %v", err)
-	}
-
-	if len(apiKey) > 0 && apiKey[0] != "" {
-		// Add headers
-		req.Header.Set("X-MBX-APIKEY", apiKey[0])
-	} else if params != nil && params.Get("apiKey").MustString() != "" {
-		// Add headers
-		req.Header.Set("X-MBX-APIKEY", params.Get("apiKey").MustString())
-	}
-
 	// Execute the request
 	client := &http.Client{}
 	resp, err := client.Do(req)

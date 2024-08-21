@@ -1,6 +1,17 @@
 # Release Notes for Turbo-Restler
 
+## v0.2.25
+
+### Release Date: 2024-08-21
+
+### Chore
+- Upgraded to `turbo-signer` v0.1.6.
+
+---
+
 ## v0.2.24
+
+### Release Date: 2024-08-21
 
 ### Feat
 - Added an optional parameter `apiKey` to `CallRestAPI` for cases where the `apikey` parameter cannot be passed.
@@ -9,12 +20,16 @@
 
 ## v0.2.23
 
+### Release Date: 2024-08-21
+
 ### Fix
 - Fixed a bug in `CallRestAPI` function, corrected the definition of the full URL when there are no parameters.
 
 ---
 
 ## v0.2.22
+
+### Release Date: 2024-08-21
 
 ### Fix
 - Fixed a bug in `CallRestAPI` function, corrected the key for `apiKey`.
@@ -23,6 +38,8 @@
 
 ## v0.2.21
 
+### Release Date: 2024-08-21
+
 ### Chore
 - Upgraded to `turbo-signer` v0.1.5.
 
@@ -30,7 +47,7 @@
 
 ## v0.2.20
 
-### Release Date: 2024-08-20
+### Release Date: 2024-08-21
 
 ### Refactor
 - Refactor `WebSocketWrapper` to consolidate functionality and improve code organization.
