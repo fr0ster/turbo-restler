@@ -10,8 +10,7 @@ const (
 )
 
 var (
-	quit chan struct{} = make(chan struct{})
-	// timeCount               = 10
-	onceSync  = new(sync.Once)
-	onceAsync = new(sync.Once)
+	quit      chan struct{} = make(chan struct{})
+	onceSync                = new(sync.Once)
+	onceAsync               = new(sync.Once)
 )

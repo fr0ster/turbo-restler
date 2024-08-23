@@ -1,5 +1,14 @@
 # Release Notes for Turbo-Restler
 
+## v0.2.27
+
+### Release Date: 2024-08-23
+
+### Feat
+- Added the ability to create a socket for sending messages in both text and binary formats.
+
+---
+
 ## v0.2.26
 
 ### Release Date: 2024-08-21

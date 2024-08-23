@@ -30,7 +30,7 @@ func (ws *WebSocketWrapper) Send(request *simplejson.Json) (err error) {
 	requestBody := ws.Serialize(request)
 
 	// Відправка запиту
-	err = ws.conn.WriteMessage(websocket.TextMessage, requestBody)
+	err = ws.conn.WriteMessage(int(ws.messageType), requestBody)
 	if err != nil {
 		err = fmt.Errorf("error sending message: %v", err)
 		return
@@ -52,11 +52,8 @@ func (ws *WebSocketWrapper) Read() (response *simplejson.Json, err error) {
 	return
 }
 
-func (ws *WebSocketWrapper) Socket() *websocket.Conn {
-	return ws.conn
-}
-
 func (ws *WebSocketWrapper) Close() (err error) {
+	ws.cancel()
 	err = ws.conn.Close()
 	if err != nil {
 		err = fmt.Errorf("error closing connection: %v", err)
@@ -94,12 +91,4 @@ func (ws *WebSocketWrapper) errorHandler(err error) {
 	if ws.errHandler != nil && !ws.silent {
 		ws.errHandler(err)
 	}
-}
-
-func (ws *WebSocketWrapper) IsOpen() bool {
-	return ws.conn != nil
-}
-
-func (ws *WebSocketWrapper) IsClosed() bool {
-	return ws.conn == nil
 }

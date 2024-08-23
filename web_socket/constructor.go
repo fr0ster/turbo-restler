@@ -31,6 +31,7 @@ func New(
 	host WsHost,
 	path WsPath,
 	scheme WsScheme,
+	messageType MessageType,
 	timeOut ...time.Duration) (ws *WebSocketWrapper, err error) { // Підключення до WebSocket
 	Dialer := websocket.Dialer{
 		Proxy:             http.ProxyFromEnvironment,
@@ -48,6 +49,7 @@ func New(
 	ws = &WebSocketWrapper{
 		silent:      true,
 		conn:        conn,
+		messageType: messageType,
 		callBackMap: make(WsHandlerMap, 0),
 		mutex:       &sync.Mutex{},
 		doneC:       make(chan struct{}, 1),
