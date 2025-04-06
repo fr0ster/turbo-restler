@@ -78,10 +78,14 @@ func (ws *WebSocketWrapper) RemoveHandler(handlerId string) *WebSocketWrapper {
 	if len(ws.callBackMap) == 0 {
 		ws.cancel()
 		ws.loopStarted = false
-		select {
-		case <-ws.doneC: // Wait for the loop to stop
-		case <-time.After(ws.timeOut): // Timeout
-			ws.errorHandler(fmt.Errorf("timeout"))
+		for {
+			select {
+			case <-ws.doneC: // Wait for the loop to stop
+				return ws
+			case <-time.After(ws.timeOut): // Timeout
+				ws.errorHandler(fmt.Errorf("timeout"))
+				return ws
+			}
 		}
 	}
 	return ws
