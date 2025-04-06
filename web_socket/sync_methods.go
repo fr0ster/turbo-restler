@@ -2,6 +2,7 @@ package web_socket
 
 import (
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -63,15 +64,23 @@ func (ws *WebSocketWrapper) isFatalCloseError(err error) bool {
 
 // Читання відповіді
 func (ws *WebSocketWrapper) Read() (response *simplejson.Json, err error) {
-	var (
-		body []byte
-	)
+	var body []byte
+
 	if ws.socketClosed {
 		err = ws.errorHandler(fmt.Errorf("socket is closed"))
 		return
 	}
+
+	// 🔥 Встановлюємо таймаут читання
+	ws.conn.SetReadDeadline(time.Now().Add(1 * time.Second))
+
 	_, body, err = ws.conn.ReadMessage()
 	if err != nil {
+		// Якщо це просто таймаут — не вважаємо фатальним
+		if ne, ok := err.(net.Error); ok && ne.Timeout() {
+			return nil, nil // просто пробуємо знову
+		}
+
 		if ws.isFatalCloseError(err) {
 			err = ws.errorHandler(fmt.Errorf("unexpected close error: %v", err))
 			ws.socketClosed = true
@@ -80,6 +89,7 @@ func (ws *WebSocketWrapper) Read() (response *simplejson.Json, err error) {
 		}
 		return
 	}
+
 	response = ws.Deserialize(body)
 	return
 }
