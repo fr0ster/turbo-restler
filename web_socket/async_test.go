@@ -87,8 +87,9 @@ func TestStartLocalStreamer(t *testing.T) {
 	time.Sleep(timeOut)
 
 	errC := make(chan error, 1)
-	mockErrHandler := func(err error) {
+	mockErrHandler := func(err error) error {
 		errC <- err
+		return err
 	}
 	checkErr := func() {
 		select {
@@ -102,7 +103,9 @@ func TestStartLocalStreamer(t *testing.T) {
 		web_socket.WsHost("localhost:8080"),
 		web_socket.WsPath("/stream"),
 		web_socket.SchemeWS,
-		web_socket.TextMessage)
+		web_socket.TextMessage,
+		false,
+		true)
 	assert.NoError(t, err)
 	assert.NotNil(t, stream)
 	stream.SetErrHandler(mockErrHandler)
@@ -120,26 +123,34 @@ func TestAbruptCloseStreamer(t *testing.T) {
 	time.Sleep(timeOut)
 
 	errC := make(chan error, 1)
-	mockErrHandler := func(err error) {
+	mockErrHandler := func(err error) error {
 		errC <- err
+		return err
 	}
 
 	stream, err := web_socket.New(
 		web_socket.WsHost("localhost:8080"),
 		web_socket.WsPath("/abrupt"),
 		web_socket.SchemeWS,
-		web_socket.TextMessage)
+		web_socket.TextMessage,
+		false,
+		true)
 	assert.NoError(t, err)
+
 	stream.SetErrHandler(mockErrHandler)
 	stream.AddHandler("abrupt", mockHandler)
 
 	select {
 	case err := <-errC:
 		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "1006") // або "unexpected EOF"
 		t.Logf("Received expected abrupt close error: %v", err)
 	case <-time.After(2 * time.Second):
 		t.Error("Timeout waiting for abrupt close error")
 	}
+
+	// гарантуємо зупинку loop
+	stream.RemoveHandler("abrupt")
 }
 
 // ✅ Нормальне закриття (CloseMessage з кодом 1000)
@@ -148,27 +159,34 @@ func TestNormalCloseStreamer(t *testing.T) {
 	time.Sleep(timeOut)
 
 	errC := make(chan error, 1)
-	mockErrHandler := func(err error) {
+	mockErrHandler := func(err error) error {
 		errC <- err
+		return err
 	}
 
 	stream, err := web_socket.New(
 		web_socket.WsHost("localhost:8080"),
 		web_socket.WsPath("/normal"),
 		web_socket.SchemeWS,
-		web_socket.TextMessage)
+		web_socket.TextMessage,
+		false,
+		true)
 	assert.NoError(t, err)
+
 	stream.SetErrHandler(mockErrHandler)
 	stream.AddHandler("normal", mockHandler)
 
 	select {
 	case err := <-errC:
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "close 1000")
+		assert.Contains(t, err.Error(), "1000")
 		t.Logf("Received expected normal close error: %v", err)
 	case <-time.After(2 * time.Second):
-		t.Error("Timeout waiting for normal close")
+		t.Error("Timeout waiting for normal close error")
 	}
+
+	// гарантуємо зупинку loop
+	stream.RemoveHandler("normal")
 }
 
 func TestAbruptCloseLoopStops(t *testing.T) {
@@ -178,19 +196,22 @@ func TestAbruptCloseLoopStops(t *testing.T) {
 	errC := make(chan error, 1)
 	extraErr := make(chan error, 1)
 
-	mockErrHandler := func(err error) {
+	mockErrHandler := func(err error) error {
 		select {
 		case errC <- err: // перша помилка
 		default:
 			extraErr <- err // друга помилка = loop не зупинився
 		}
+		return err
 	}
 
 	stream, err := web_socket.New(
 		web_socket.WsHost("localhost:8080"),
 		web_socket.WsPath("/abrupt"),
 		web_socket.SchemeWS,
-		web_socket.TextMessage)
+		web_socket.TextMessage,
+		false,
+		true)
 	assert.NoError(t, err)
 
 	stream.SetErrHandler(mockErrHandler)

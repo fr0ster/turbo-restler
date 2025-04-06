@@ -66,8 +66,8 @@ func (ws *WebSocketWrapper) Read() (response *simplejson.Json, err error) {
 	var (
 		body []byte
 	)
-	if !ws.socketClosed {
-		err = fmt.Errorf("socket is closed")
+	if ws.socketClosed {
+		err = ws.errHandler(fmt.Errorf("socket is closed"))
 		return
 	}
 	_, body, err = ws.conn.ReadMessage()
@@ -88,7 +88,7 @@ func (ws *WebSocketWrapper) Close() (err error) {
 	ws.cancel()
 	err = ws.conn.Close()
 	if err != nil {
-		err = fmt.Errorf("error closing connection: %v", err)
+		err = ws.errHandler(fmt.Errorf("error closing connection: %v", err))
 		return
 	}
 	ws.conn = nil
@@ -130,14 +130,14 @@ func (ws *WebSocketWrapper) SetPongHandler(handler ...func(appData string) error
 	}
 }
 
-func (ws *WebSocketWrapper) SetErrorHandler(handler ...func(err error)) {
+func (ws *WebSocketWrapper) SetErrorHandler(handler ...func(err error) error) {
 	// Встановлення обробника для помилок
 	if len(handler) == 0 {
-		ws.errHandler = func(err error) {
+		ws.errHandler = func(err error) error {
 			if ws.silent {
-				return
+				fmt.Printf("error: %v\n", err)
 			}
-			fmt.Printf("error: %v\n", err)
+			return err
 		}
 	} else {
 		ws.errHandler = handler[0]
@@ -151,8 +151,20 @@ func (ws *WebSocketWrapper) SetMessageType(messageType MessageType) {
 func (ws *WebSocketWrapper) SetCloseHandler(handler ...func(code int, text string) error) {
 	// Встановлення обробника для закриття з'єднання
 	if len(handler) == 0 {
-		ws.conn.SetCloseHandler(func(code int, text string) error {
+		ws.conn.SetCloseHandler(func(code int, text string) (err error) {
 			fmt.Printf("WebSocket closed with code %d and message: %s\n", code, text)
+			ws.socketClosed = true
+			if ws.loopStarted {
+				ws.cancel()
+				ws.loopStarted = false
+			}
+			if ws.errHandler != nil && !ws.silent {
+				ws.errHandler(fmt.Errorf("WebSocket closed with code %d and message: %s", code, text))
+			}
+			ws.conn, _, err = ws.dialer.Dial(string(ws.scheme)+"://"+string(ws.host)+string(ws.path), nil)
+			if err != nil {
+				return
+			}
 			return nil
 		})
 	} else {
@@ -176,4 +188,8 @@ func (ws *WebSocketWrapper) errorHandler(err error) {
 	if ws.errHandler != nil && !ws.silent {
 		ws.errHandler(err)
 	}
+}
+
+func (ws *WebSocketWrapper) GetDoneC() chan struct{} {
+	return ws.doneC
 }

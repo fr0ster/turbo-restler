@@ -84,7 +84,13 @@ func TestWebApiTextMessage(t *testing.T) {
 	go startWebSocketServer()
 	time.Sleep(timeOut)
 	// Create a new WebApi instance
-	api, err := web_socket.New(web_socket.WsHost("localhost:8081"), web_socket.WsPath("/ws"), web_socket.SchemeWS, web_socket.TextMessage)
+	api, err := web_socket.New(
+		web_socket.WsHost("localhost:8081"),
+		web_socket.WsPath("/ws"),
+		web_socket.SchemeWS,
+		web_socket.TextMessage,
+		false,
+		true)
 	if err != nil {
 		log.Fatal("New error:", err)
 	}
@@ -129,7 +135,13 @@ func TestWebApiBinaryMessage(t *testing.T) {
 	go startWebSocketServer()
 	time.Sleep(timeOut)
 	// Create a new WebApi instance
-	api, err := web_socket.New(web_socket.WsHost("localhost:8081"), web_socket.WsPath("/ws"), web_socket.SchemeWS, web_socket.BinaryMessage)
+	api, err := web_socket.New(
+		web_socket.WsHost("localhost:8081"),
+		web_socket.WsPath("/ws"),
+		web_socket.SchemeWS,
+		web_socket.BinaryMessage,
+		false,
+		true)
 	if err != nil {
 		log.Fatal("New error:", err)
 	}
@@ -179,7 +191,8 @@ func TestWebApiAbruptServerClose(t *testing.T) {
 		web_socket.WsPath("/ws"),
 		web_socket.SchemeWS,
 		web_socket.TextMessage,
-	)
+		false,
+		true)
 	if err != nil {
 		t.Fatal("New error:", err)
 	}
@@ -229,7 +242,8 @@ func TestWebApiNormalClose(t *testing.T) {
 		web_socket.WsPath("/ws"),
 		web_socket.SchemeWS,
 		web_socket.TextMessage,
-	)
+		false,
+		true)
 	if err != nil {
 		t.Fatal("New error:", err)
 	}
@@ -250,12 +264,7 @@ func TestWebApiNormalClose(t *testing.T) {
 		t.Fatalf("Send error: %v", err)
 	}
 
-	_, err = api.Read()
-	if err == nil {
-		t.Log("Connection closed normally, no error returned")
-	} else {
-		t.Logf("Expected normal close, got: %v", err)
-	}
+	_, _ = api.Read()
 
 	if !closeCalled {
 		t.Error("Expected CloseHandler to be called on normal close")
