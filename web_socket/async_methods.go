@@ -16,7 +16,7 @@ func (ws *WebSocketWrapper) loop() (err error) {
 			for {
 				select {
 				case <-ws.ctx.Done():
-					ws.doneC <- struct{}{}
+					ws.doneC <- struct{}{} // ✅ сигнал завершення
 					ws.loopStarted = false
 					ws.mutex.Unlock()
 					return
@@ -24,9 +24,7 @@ func (ws *WebSocketWrapper) loop() (err error) {
 					response, err := ws.Read()
 					if err != nil {
 						ws.errorHandler(err)
-
-						// зупиняємо loop, бо з’єднання вже мертве
-						ws.cancel()
+						ws.cancel() // 🔁 зупиняємо loop
 					} else {
 						for _, cb := range ws.callBackMap {
 							cb(response)
@@ -38,7 +36,7 @@ func (ws *WebSocketWrapper) loop() (err error) {
 	} else {
 		err = fmt.Errorf("inner loop is already running")
 	}
-	ws.doneC <- struct{}{}
+	ws.doneC <- struct{}{} // ✅ перший сигнал (від основного потоку)
 
 	return
 }
