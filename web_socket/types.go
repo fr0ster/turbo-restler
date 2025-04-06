@@ -62,5 +62,6 @@ type (
 		mutex       *sync.Mutex
 		doneC       chan struct{}
 		timeOut     time.Duration
+		loopStarted bool
 	}
 )

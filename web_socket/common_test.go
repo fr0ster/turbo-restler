@@ -10,7 +10,6 @@ const (
 )
 
 var (
-	quit      chan struct{} = make(chan struct{})
-	onceSync                = new(sync.Once)
-	onceAsync               = new(sync.Once)
+	onceSync  = new(sync.Once)
+	onceAsync = new(sync.Once)
 )

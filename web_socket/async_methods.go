@@ -12,16 +12,21 @@ func (ws *WebSocketWrapper) loop() (err error) {
 	}
 	if ws.mutex.TryLock() {
 		go func() {
+			ws.loopStarted = true
 			for {
 				select {
 				case <-ws.ctx.Done():
 					ws.doneC <- struct{}{}
+					ws.loopStarted = false
 					ws.mutex.Unlock()
 					return
 				default:
 					response, err := ws.Read()
 					if err != nil {
 						ws.errHandler(err)
+
+						// зупиняємо loop, бо з’єднання вже мертве
+						ws.cancel()
 					} else {
 						for _, cb := range ws.callBackMap {
 							cb(response)
@@ -72,6 +77,7 @@ func (ws *WebSocketWrapper) RemoveHandler(handlerId string) *WebSocketWrapper {
 	}
 	if len(ws.callBackMap) == 0 {
 		ws.cancel()
+		ws.loopStarted = false
 		select {
 		case <-ws.doneC: // Wait for the loop to stop
 		case <-time.After(ws.timeOut): // Timeout

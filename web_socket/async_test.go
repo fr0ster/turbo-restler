@@ -170,3 +170,48 @@ func TestNormalCloseStreamer(t *testing.T) {
 		t.Error("Timeout waiting for normal close")
 	}
 }
+
+func TestAbruptCloseLoopStops(t *testing.T) {
+	go startServer()
+	time.Sleep(timeOut)
+
+	errC := make(chan error, 1)
+	extraErr := make(chan error, 1)
+
+	mockErrHandler := func(err error) {
+		select {
+		case errC <- err: // перша помилка
+		default:
+			extraErr <- err // друга помилка = loop не зупинився
+		}
+	}
+
+	stream, err := web_socket.New(
+		web_socket.WsHost("localhost:8080"),
+		web_socket.WsPath("/abrupt"),
+		web_socket.SchemeWS,
+		web_socket.TextMessage)
+	assert.NoError(t, err)
+
+	stream.SetErrHandler(mockErrHandler)
+	stream.AddHandler("panic-test", mockHandler)
+
+	select {
+	case err := <-errC:
+		assert.Error(t, err)
+		t.Logf("Got expected first error: %v", err)
+
+		// даємо трохи часу: якщо loop не зупинився, буде ще один err
+		time.Sleep(300 * time.Millisecond)
+
+		select {
+		case extra := <-extraErr:
+			t.Fatalf("loop did NOT stop: received extra error: %v", extra)
+		default:
+			t.Log("loop exited properly after first error ✅")
+		}
+
+	case <-time.After(2 * time.Second):
+		t.Fatal("Timeout waiting for expected error")
+	}
+}
