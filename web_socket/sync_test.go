@@ -89,7 +89,6 @@ func TestWebApiTextMessage(t *testing.T) {
 		web_socket.WsPath("/ws"),
 		web_socket.SchemeWS,
 		web_socket.TextMessage,
-		false,
 		true)
 	if err != nil {
 		log.Fatal("New error:", err)
@@ -140,7 +139,6 @@ func TestWebApiBinaryMessage(t *testing.T) {
 		web_socket.WsPath("/ws"),
 		web_socket.SchemeWS,
 		web_socket.BinaryMessage,
-		false,
 		true)
 	if err != nil {
 		log.Fatal("New error:", err)
@@ -191,7 +189,6 @@ func TestWebApiAbruptServerClose(t *testing.T) {
 		web_socket.WsPath("/ws"),
 		web_socket.SchemeWS,
 		web_socket.TextMessage,
-		false,
 		true)
 	if err != nil {
 		t.Fatal("New error:", err)
@@ -242,7 +239,6 @@ func TestWebApiNormalClose(t *testing.T) {
 		web_socket.WsPath("/ws"),
 		web_socket.SchemeWS,
 		web_socket.TextMessage,
-		false,
 		true)
 	if err != nil {
 		t.Fatal("New error:", err)

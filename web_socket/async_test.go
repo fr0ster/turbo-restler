@@ -104,7 +104,6 @@ func TestStartLocalStreamer(t *testing.T) {
 		web_socket.WsPath("/stream"),
 		web_socket.SchemeWS,
 		web_socket.TextMessage,
-		false,
 		true)
 	assert.NoError(t, err)
 	assert.NotNil(t, stream)
@@ -133,8 +132,7 @@ func TestAbruptCloseStreamer(t *testing.T) {
 		web_socket.WsPath("/abrupt"),
 		web_socket.SchemeWS,
 		web_socket.TextMessage,
-		false,
-		true)
+		false)
 	assert.NoError(t, err)
 
 	stream.SetErrHandler(mockErrHandler)
@@ -169,8 +167,7 @@ func TestNormalCloseStreamer(t *testing.T) {
 		web_socket.WsPath("/normal"),
 		web_socket.SchemeWS,
 		web_socket.TextMessage,
-		false,
-		true)
+		false)
 	assert.NoError(t, err)
 
 	stream.SetErrHandler(mockErrHandler)
@@ -210,8 +207,7 @@ func TestAbruptCloseLoopStops(t *testing.T) {
 		web_socket.WsPath("/abrupt"),
 		web_socket.SchemeWS,
 		web_socket.TextMessage,
-		false,
-		true)
+		false)
 	assert.NoError(t, err)
 
 	stream.SetErrHandler(mockErrHandler)
@@ -235,4 +231,111 @@ func TestAbruptCloseLoopStops(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("Timeout waiting for expected error")
 	}
+}
+
+func TestAbruptCloseSilent(t *testing.T) {
+	go startServer()
+	time.Sleep(timeOut)
+
+	errC := make(chan error, 1)
+
+	// все одно треба SetErrHandler, але він не буде викликаний
+	mockErrHandler := func(err error) error {
+		errC <- err
+		return err
+	}
+
+	stream, err := web_socket.New(
+		web_socket.WsHost("localhost:8080"),
+		web_socket.WsPath("/normal"),
+		web_socket.SchemeWS,
+		web_socket.TextMessage,
+		true)
+	assert.NoError(t, err)
+
+	stream.SetErrHandler(mockErrHandler)
+	stream.AddHandler("silent-test", mockHandler)
+
+	// даємо трохи часу
+	time.Sleep(500 * time.Millisecond)
+
+	select {
+	case err := <-errC:
+		t.Fatalf("Unexpected error received in silent mode: %v", err)
+	default:
+		t.Log("No error received in silent mode, as expected ✅")
+	}
+
+	// гарантуємо завершення loop
+	stream.RemoveHandler("silent-test")
+}
+
+func TestNormalCloseSilent(t *testing.T) {
+	go startServer()
+	time.Sleep(timeOut)
+
+	errC := make(chan error, 1)
+
+	mockErrHandler := func(err error) error {
+		errC <- err
+		return err
+	}
+
+	stream, err := web_socket.New(
+		web_socket.WsHost("localhost:8080"),
+		web_socket.WsPath("/normal"),
+		web_socket.SchemeWS,
+		web_socket.TextMessage,
+		true)
+	assert.NoError(t, err)
+
+	stream.SetErrHandler(mockErrHandler)
+	stream.AddHandler("silent-normal", mockHandler)
+
+	// Даємо час на нормальне закриття
+	time.Sleep(500 * time.Millisecond)
+
+	select {
+	case err := <-errC:
+		t.Fatalf("Silent mode: unexpected error received: %v", err)
+	default:
+		t.Log("Silent mode: no error received on normal close ✅")
+	}
+
+	stream.RemoveHandler("silent-normal")
+}
+
+func TestAbruptCloseLoopStopsSilent(t *testing.T) {
+	go startServer()
+	time.Sleep(timeOut)
+
+	errC := make(chan error, 1)
+
+	mockErrHandler := func(err error) error {
+		errC <- err // ❗ не має викликатись
+		return err
+	}
+
+	stream, err := web_socket.New(
+		web_socket.WsHost("localhost:8080"),
+		web_socket.WsPath("/normal"),
+		web_socket.SchemeWS,
+		web_socket.TextMessage,
+		true)
+	assert.NoError(t, err)
+
+	stream.SetErrHandler(mockErrHandler)
+	stream.AddHandler("silent-abrupt", mockHandler)
+
+	// Даємо час для помилки
+	time.Sleep(500 * time.Millisecond)
+
+	select {
+	case err := <-errC:
+		t.Fatalf("Silent mode: unexpected error received: %v", err)
+	default:
+		t.Log("Silent mode: no error received on abrupt close ✅")
+	}
+
+	stream.RemoveHandler("silent-abrupt")
 }

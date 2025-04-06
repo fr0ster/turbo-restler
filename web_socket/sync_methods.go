@@ -67,16 +67,16 @@ func (ws *WebSocketWrapper) Read() (response *simplejson.Json, err error) {
 		body []byte
 	)
 	if ws.socketClosed {
-		err = ws.errHandler(fmt.Errorf("socket is closed"))
+		err = ws.errorHandler(fmt.Errorf("socket is closed"))
 		return
 	}
 	_, body, err = ws.conn.ReadMessage()
 	if err != nil {
 		if ws.isFatalCloseError(err) {
-			err = fmt.Errorf("unexpected close error: %v", err)
+			err = ws.errorHandler(fmt.Errorf("unexpected close error: %v", err))
 			ws.socketClosed = true
 		} else {
-			err = fmt.Errorf("error reading message: %v", err)
+			err = ws.errorHandler(fmt.Errorf("error reading message: %v", err))
 		}
 		return
 	}
@@ -88,7 +88,7 @@ func (ws *WebSocketWrapper) Close() (err error) {
 	ws.cancel()
 	err = ws.conn.Close()
 	if err != nil {
-		err = ws.errHandler(fmt.Errorf("error closing connection: %v", err))
+		err = ws.errorHandler(fmt.Errorf("error closing connection: %v", err))
 		return
 	}
 	ws.conn = nil
@@ -158,9 +158,7 @@ func (ws *WebSocketWrapper) SetCloseHandler(handler ...func(code int, text strin
 				ws.cancel()
 				ws.loopStarted = false
 			}
-			if ws.errHandler != nil && !ws.silent {
-				ws.errHandler(fmt.Errorf("WebSocket closed with code %d and message: %s", code, text))
-			}
+			ws.errorHandler(fmt.Errorf("WebSocket closed with code %d and message: %s", code, text))
 			ws.conn, _, err = ws.dialer.Dial(string(ws.scheme)+"://"+string(ws.host)+string(ws.path), nil)
 			if err != nil {
 				return
@@ -184,10 +182,11 @@ func (ws *WebSocketWrapper) SetWriteDeadline(t time.Time) {
 	ws.conn.SetWriteDeadline(t)
 }
 
-func (ws *WebSocketWrapper) errorHandler(err error) {
+func (ws *WebSocketWrapper) errorHandler(err error) error {
 	if ws.errHandler != nil && !ws.silent {
 		ws.errHandler(err)
 	}
+	return err
 }
 
 func (ws *WebSocketWrapper) GetDoneC() chan struct{} {

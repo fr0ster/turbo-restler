@@ -52,22 +52,21 @@ type (
 	ErrHandler       func(err error) error
 	MessageType      int
 	WebSocketWrapper struct {
-		dialer         websocket.Dialer
-		host           WsHost
-		path           WsPath
-		scheme         WsScheme
-		recoverConnect bool
-		silent         bool
-		conn           *websocket.Conn
-		messageType    MessageType
-		ctx            context.Context
-		cancel         context.CancelFunc
-		callBackMap    WsHandlerMap
-		errHandler     ErrHandler
-		mutex          *sync.Mutex
-		doneC          chan struct{}
-		timeOut        time.Duration
-		loopStarted    bool
-		socketClosed   bool
+		dialer       websocket.Dialer
+		host         WsHost
+		path         WsPath
+		scheme       WsScheme
+		silent       bool
+		conn         *websocket.Conn
+		messageType  MessageType
+		ctx          context.Context
+		cancel       context.CancelFunc
+		callBackMap  WsHandlerMap
+		errHandler   ErrHandler
+		mutex        *sync.Mutex
+		doneC        chan struct{}
+		timeOut      time.Duration
+		loopStarted  bool
+		socketClosed bool
 	}
 )

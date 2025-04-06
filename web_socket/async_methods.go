@@ -23,7 +23,7 @@ func (ws *WebSocketWrapper) loop() (err error) {
 				default:
 					response, err := ws.Read()
 					if err != nil {
-						ws.errHandler(err)
+						ws.errorHandler(err)
 
 						// зупиняємо loop, бо з’єднання вже мертве
 						ws.cancel()
@@ -52,17 +52,17 @@ func (ws *WebSocketWrapper) AddHandler(handlerId string, handler WsHandler) *Web
 	if _, ok := ws.callBackMap[handlerId]; !ok {
 		ws.callBackMap[handlerId] = handler
 	} else {
-		ws.printError(fmt.Errorf("handler with id %s already exists", handlerId))
+		ws.errorHandler(fmt.Errorf("handler with id %s already exists", handlerId))
 		return ws
 	}
 	err := ws.loop()
 	if err != nil {
-		ws.printError(err)
+		ws.errorHandler(err)
 	}
 	select {
 	case <-ws.doneC: // Wait for the loop to start
 	case <-time.After(ws.timeOut): // Timeout
-		ws.printError(fmt.Errorf("timeout"))
+		ws.errorHandler(fmt.Errorf("timeout"))
 	}
 	return ws
 }
@@ -72,7 +72,7 @@ func (ws *WebSocketWrapper) RemoveHandler(handlerId string) *WebSocketWrapper {
 		ws.callBackMap[handlerId] = nil
 		delete(ws.callBackMap, handlerId)
 	} else {
-		ws.printError(fmt.Errorf("handler with id %s does not exist", handlerId))
+		ws.errorHandler(fmt.Errorf("handler with id %s does not exist", handlerId))
 		return ws
 	}
 	if len(ws.callBackMap) == 0 {
@@ -81,7 +81,7 @@ func (ws *WebSocketWrapper) RemoveHandler(handlerId string) *WebSocketWrapper {
 		select {
 		case <-ws.doneC: // Wait for the loop to stop
 		case <-time.After(ws.timeOut): // Timeout
-			ws.printError(fmt.Errorf("timeout"))
+			ws.errorHandler(fmt.Errorf("timeout"))
 		}
 	}
 	return ws
