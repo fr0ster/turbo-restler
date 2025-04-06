@@ -208,6 +208,13 @@ func TestWebApiAbruptServerClose(t *testing.T) {
 		t.Logf("Got expected abrupt close error: %v", err)
 	}
 
+	_, err = api.Read()
+	if err == nil {
+		t.Error("Expected error due to abrupt close, got nil")
+	} else {
+		t.Logf("Got expected abrupt close error: %v", err)
+	}
+
 	if closeCalled {
 		t.Error("CloseHandler should NOT be called for abrupt close (code 1006)")
 	}

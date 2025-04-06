@@ -86,3 +86,7 @@ func (ws *WebSocketWrapper) RemoveHandler(handlerId string) *WebSocketWrapper {
 	}
 	return ws
 }
+
+func (ws *WebSocketWrapper) GetLoopStarted() bool {
+	return ws.loopStarted
+}
