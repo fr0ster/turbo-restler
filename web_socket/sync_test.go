@@ -39,36 +39,43 @@ func handleWithParams(w http.ResponseWriter, r *http.Request) {
 	defer conn.Close()
 
 	for {
-		select {
-		case <-quit:
+		_, message, err := conn.ReadMessage()
+		if err != nil {
+			log.Println("Read error:", err)
 			return
-		default:
-			_, message, err := conn.ReadMessage()
-			if err != nil {
-				log.Println("Read error:", err)
-				break
-			}
-			log.Printf("Received message: %s", message)
-			js, err := simplejson.NewJson(message)
-			if err != nil {
-				log.Println("Error parsing JSON:", err)
-				break
-			}
-			method, _ := js.Get("method").String()
-			if method == "with-params" {
-				params := js.Get("params")
-				log.Printf("Received method: %s, params: %s", method, params)
-			} else {
-				logrus.Errorf("Unknown method: %s", method)
-			}
+		}
+		log.Printf("Received message: %s", message)
 
-			// Тут можна обробити параметри з повідомлення
+		js, err := simplejson.NewJson(message)
+		if err != nil {
+			log.Println("Error parsing JSON:", err)
+			return
+		}
+		method, _ := js.Get("method").String()
+
+		switch method {
+		case "with-params":
+			params := js.Get("params")
+			log.Printf("Received method: %s, params: %s", method, params)
 			response := fmt.Sprintf("Response from with-params method: received %s", message)
 			err = conn.WriteMessage(websocket.TextMessage, []byte(response))
 			if err != nil {
 				log.Println("Write error:", err)
 				return
 			}
+		case "break":
+			log.Println("Simulating abrupt close on client request")
+			conn.Close() // Раптовий обрив без CloseMessage
+			return
+		case "close-normally":
+			log.Println("Simulating NORMAL close on client request")
+			conn.WriteControl(websocket.CloseMessage,
+				websocket.FormatCloseMessage(websocket.CloseNormalClosure, "closing per client request"),
+				time.Now().Add(time.Second))
+			conn.Close() // нормальне закриття з CloseMessage
+			return
+		default:
+			logrus.Errorf("Unknown method: %s", method)
 		}
 	}
 }
@@ -161,4 +168,89 @@ func TestWebApiBinaryMessage(t *testing.T) {
 	fmt.Println("Response data:", data)
 
 	// TODO: Add more assertions for the request sending process
+}
+
+func TestWebApiAbruptServerClose(t *testing.T) {
+	go startWebSocketServer()
+	time.Sleep(timeOut)
+
+	api, err := web_socket.New(
+		web_socket.WsHost("localhost:8081"),
+		web_socket.WsPath("/ws"),
+		web_socket.SchemeWS,
+		web_socket.TextMessage,
+	)
+	if err != nil {
+		t.Fatal("New error:", err)
+	}
+
+	closeCalled := false
+	api.SetCloseHandler(func(code int, text string) error {
+		t.Logf("CLOSE HANDLER: code=%d, msg=%s", code, text)
+		closeCalled = true
+		return nil
+	})
+
+	// Надсилаємо запит на раптове завершення
+	req := simplejson.New()
+	req.Set("id", 1)
+	req.Set("method", "break")
+
+	err = api.Send(req)
+	if err != nil {
+		t.Fatalf("Send error: %v", err)
+	}
+
+	_, err = api.Read()
+	if err == nil {
+		t.Error("Expected error due to abrupt close, got nil")
+	} else {
+		t.Logf("Got expected abrupt close error: %v", err)
+	}
+
+	if closeCalled {
+		t.Error("CloseHandler should NOT be called for abrupt close (code 1006)")
+	}
+}
+
+func TestWebApiNormalClose(t *testing.T) {
+	go startWebSocketServer()
+	time.Sleep(timeOut)
+
+	api, err := web_socket.New(
+		web_socket.WsHost("localhost:8081"),
+		web_socket.WsPath("/ws"),
+		web_socket.SchemeWS,
+		web_socket.TextMessage,
+	)
+	if err != nil {
+		t.Fatal("New error:", err)
+	}
+
+	closeCalled := false
+	api.SetCloseHandler(func(code int, text string) error {
+		t.Logf("CLOSE HANDLER: code=%d, msg=%s", code, text)
+		closeCalled = true
+		return nil
+	})
+
+	req := simplejson.New()
+	req.Set("id", 1)
+	req.Set("method", "close-normally")
+
+	err = api.Send(req)
+	if err != nil {
+		t.Fatalf("Send error: %v", err)
+	}
+
+	_, err = api.Read()
+	if err == nil {
+		t.Log("Connection closed normally, no error returned")
+	} else {
+		t.Logf("Expected normal close, got: %v", err)
+	}
+
+	if !closeCalled {
+		t.Error("Expected CloseHandler to be called on normal close")
+	}
 }

@@ -83,8 +83,61 @@ func (ws *WebSocketWrapper) SetPingHandler(handler ...func(appData string) error
 	}
 }
 
-func (ws *WebSocketWrapper) SetErrorHandler(handler func(err error)) {
-	ws.errHandler = handler
+func (ws *WebSocketWrapper) SetPongHandler(handler ...func(appData string) error) {
+	// Встановлення обробника для pong повідомлень
+	if len(handler) == 0 {
+		ws.conn.SetPongHandler(func(appData string) error {
+			err := ws.conn.WriteControl(websocket.PingMessage, []byte(appData), time.Now().Add(time.Second))
+			if err != nil {
+				ws.errorHandler(fmt.Errorf("error sending ping: %v", err))
+			}
+			return nil
+		})
+	} else {
+		ws.conn.SetPongHandler(handler[0])
+	}
+}
+
+func (ws *WebSocketWrapper) SetErrorHandler(handler ...func(err error)) {
+	// Встановлення обробника для помилок
+	if len(handler) == 0 {
+		ws.errHandler = func(err error) {
+			if ws.silent {
+				return
+			}
+			fmt.Printf("error: %v\n", err)
+		}
+	} else {
+		ws.errHandler = handler[0]
+	}
+}
+
+func (ws *WebSocketWrapper) SetMessageType(messageType MessageType) {
+	ws.messageType = messageType
+}
+
+func (ws *WebSocketWrapper) SetCloseHandler(handler ...func(code int, text string) error) {
+	// Встановлення обробника для закриття з'єднання
+	if len(handler) == 0 {
+		ws.conn.SetCloseHandler(func(code int, text string) error {
+			fmt.Printf("WebSocket closed with code %d and message: %s\n", code, text)
+			return nil
+		})
+	} else {
+		ws.conn.SetCloseHandler(handler[0])
+	}
+}
+
+func (ws *WebSocketWrapper) SetReadLimit(limit int64) {
+	ws.conn.SetReadLimit(limit)
+}
+
+func (ws *WebSocketWrapper) SetReadDeadline(t time.Time) {
+	ws.conn.SetReadDeadline(t)
+}
+
+func (ws *WebSocketWrapper) SetWriteDeadline(t time.Time) {
+	ws.conn.SetWriteDeadline(t)
 }
 
 func (ws *WebSocketWrapper) errorHandler(err error) {
