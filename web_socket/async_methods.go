@@ -40,12 +40,12 @@ func (ws *WebSocketWrapper) loop() error {
 				return
 			}
 
-			if ws.conn == nil {
+			if ws.getConn() == nil {
 				time.Sleep(100 * time.Millisecond)
 				continue
 			}
 
-			_ = ws.conn.SetReadDeadline(time.Now().Add(1 * time.Second))
+			_ = ws.getConn().SetReadDeadline(time.Now().Add(1 * time.Second))
 			response, err := ws.Read()
 
 			if err != nil {
