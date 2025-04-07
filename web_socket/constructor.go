@@ -43,17 +43,19 @@ func New(
 		timeOut = append(timeOut, 10*time.Second)
 	}
 	ws = &WebSocketWrapper{
-		dialer:      Dialer,
-		host:        host,
-		scheme:      scheme,
-		path:        path,
-		silent:      silent,
-		conn:        conn,
-		messageType: messageType,
-		callBackMap: make(WsHandlerMap, 0),
-		mutex:       &sync.Mutex{},
-		doneC:       make(chan struct{}, 1),
-		timeOut:     timeOut[0],
+		dialer:       Dialer,
+		host:         host,
+		scheme:       scheme,
+		path:         path,
+		silent:       silent,
+		conn:         conn,
+		messageType:  messageType,
+		callBackMap:  make(WsHandlerMap, 0),
+		mutex:        &sync.Mutex{},
+		doneC:        make(chan struct{}, 1),
+		loopStartedC: make(chan struct{}, 1),
+		errorC:       make(chan error, 1),
+		timeOut:      timeOut[0],
 	}
 	ws.ctx, ws.cancel = context.WithCancel(context.Background())
 	return

@@ -61,10 +61,12 @@ type (
 		messageType  MessageType
 		ctx          context.Context
 		cancel       context.CancelFunc
+		stopOnce     sync.Once
 		callBackMap  WsHandlerMap
 		errHandler   ErrHandler
 		mutex        *sync.Mutex
 		doneC        chan struct{}
+		loopStartedC chan struct{}
 		errorC       chan error
 		timeOut      time.Duration
 		loopStarted  bool

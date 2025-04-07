@@ -1,42 +1,74 @@
 package web_socket
 
 import (
+	"context"
 	"fmt"
 	"time"
 )
 
-func (ws *WebSocketWrapper) loop() (err error) {
+func (ws *WebSocketWrapper) loop() error {
 	if len(ws.callBackMap) == 0 {
-		err = fmt.Errorf("no handlers")
-		return
+		return fmt.Errorf("no handlers")
 	}
+
 	if ws.mutex.TryLock() {
+		ws.ctx, ws.cancel = context.WithCancel(context.Background())
+		ws.doneC = make(chan struct{})
+		ws.loopStarted = true
+
 		go func() {
-			ws.loopStarted = true
+			defer func() {
+				ws.stopOnce.Do(func() {
+					ws.cancel()
+				})
+				ws.loopStarted = false
+				ws.mutex.Unlock()
+			}()
+
 			for {
 				select {
 				case <-ws.ctx.Done():
-					ws.doneC <- struct{}{} // ✅ сигнал завершення
-					ws.loopStarted = false
-					ws.mutex.Unlock()
+					close(ws.doneC)
 					return
 				default:
-					response, err := ws.Read()
-					if err != nil {
-						ws.errorHandler(err)
-						ws.cancel() // 🔁 зупиняємо loop
-					} else {
+					select {
+					case <-ws.ctx.Done():
+						close(ws.doneC)
+						return
+					default:
+						response, err := ws.Read()
+						if err != nil {
+							ws.errorHandler(err)
+							// 🧠 Якщо помилка критична — закриваємо
+							if ws.isFatalCloseError(err) {
+								ws.stopOnce.Do(func() {
+									ws.cancel()
+								})
+								close(ws.doneC)
+								return
+							}
+
+							// ❗️Інакше просто логічна помилка — продовжуємо
+							continue
+						}
+
+						if len(ws.callBackMap) == 0 {
+							continue
+						}
+
 						for _, cb := range ws.callBackMap {
-							cb(response)
+							if cb != nil {
+								cb(response)
+							}
 						}
 					}
 				}
 			}
 		}()
 	}
-	ws.doneC <- struct{}{} // ✅ перший сигнал (від основного потоку)
+	ws.loopStartedC <- struct{}{}
 
-	return
+	return nil
 }
 
 func (ws *WebSocketWrapper) SetErrHandler(errHandler ErrHandler) *WebSocketWrapper {
@@ -55,10 +87,12 @@ func (ws *WebSocketWrapper) AddHandler(handlerId string, handler WsHandler) *Web
 	if err != nil {
 		ws.errorHandler(err)
 	}
-	select {
-	case <-ws.doneC: // Wait for the loop to start
-	case <-time.After(ws.timeOut): // Timeout
-		ws.errorHandler(fmt.Errorf("timeout"))
+	if !ws.loopStarted {
+		select {
+		case <-ws.loopStartedC: // Wait for the loop to start
+		case <-time.After(ws.timeOut): // Timeout
+			ws.errorHandler(fmt.Errorf("timeout"))
+		}
 	}
 	return ws
 }
@@ -72,7 +106,9 @@ func (ws *WebSocketWrapper) RemoveHandler(handlerId string) *WebSocketWrapper {
 		return ws
 	}
 	if len(ws.callBackMap) == 0 {
-		ws.cancel()
+		ws.stopOnce.Do(func() {
+			ws.cancel()
+		})
 		ws.loopStarted = false
 		for {
 			select {

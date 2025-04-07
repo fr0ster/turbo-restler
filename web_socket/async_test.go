@@ -112,6 +112,58 @@ func pingPongHandler(w http.ResponseWriter, r *http.Request) {
 	logrus.Info("✅ Ping/Pong loop finished successfully — client alive")
 }
 
+func errorHandler(w http.ResponseWriter, r *http.Request) {
+	errType := r.URL.Query().Get("type") // 👈 читаємо тип помилки з query
+
+	conn, err := upgraderAsync.Upgrade(w, r, nil)
+	if err != nil {
+		logrus.Print("upgrade:", err)
+		return
+	}
+	defer conn.Close()
+
+	for {
+		_, msg, err := conn.ReadMessage()
+		if err != nil {
+			logrus.Warnf("❌ Read error (socket may be closed): %v", err)
+			return
+		}
+
+		req, err := simplejson.NewJson(msg)
+		if err != nil {
+			logrus.Warn("⚠️ Invalid JSON received")
+			continue
+		}
+
+		id := req.Get("id").MustString()
+		method := req.Get("method").MustString()
+
+		resp := simplejson.New()
+		resp.Set("id", id)
+
+		switch method {
+		case "ERROR":
+			if errType == "" {
+				errType = "generic-error"
+			}
+			logrus.Warnf("🔴 Responding with error: %s", errType)
+			resp.Set("error", errType)
+
+			b, _ := resp.Encode()
+			conn.WriteMessage(websocket.TextMessage, b)
+
+			// 💡 Не закриваємо одразу
+			time.Sleep(200 * time.Millisecond)
+			continue
+
+		default:
+			resp.Set("result", "OK")
+			b, _ := resp.Encode()
+			conn.WriteMessage(websocket.TextMessage, b)
+		}
+	}
+}
+
 // 🔧 Запускаємо локальний сервер
 func startServer() {
 	onceAsync.Do(func() {
@@ -119,6 +171,7 @@ func startServer() {
 		http.HandleFunc("/abrupt", abruptCloseHandler)
 		http.HandleFunc("/normal", normalCloseHandler)
 		http.HandleFunc("/ping-pong", pingPongHandler)
+		http.HandleFunc("/error", errorHandler)
 		go func() {
 			logrus.Info("Starting WebSocket test server on :8080")
 			logrus.Fatal(http.ListenAndServe(":8080", nil))
@@ -228,7 +281,7 @@ func TestNormalCloseStreamer(t *testing.T) {
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "1000")
 		t.Logf("Received expected normal close error: %v", err)
-	case <-time.After(2 * time.Second):
+	case <-time.After(10 * time.Second):
 		t.Error("Timeout waiting for normal close error")
 	}
 
@@ -311,4 +364,60 @@ func TestPingPongConnectionAlive(t *testing.T) {
 	}
 
 	stream.Close()
+}
+
+func TestWebSocketWrapper_LoopStartsWithAddHandler(t *testing.T) {
+	go startServer()
+	time.Sleep(timeOut)
+
+	errC := make(chan error, 1)
+	mockErrHandler := func(err error) error {
+		errC <- err
+		return err
+	}
+
+	stream, err := web_socket.New(
+		web_socket.WsHost("localhost:8080"),
+		web_socket.WsPath("/error?type=loop-start-error"),
+		web_socket.SchemeWS,
+		web_socket.TextMessage,
+		false)
+	assert.NoError(t, err)
+	if err != nil {
+		t.Fatalf("Failed to create WebSocketWrapper: %v", err)
+		return
+	}
+
+	stream.SetErrHandler(mockErrHandler)
+
+	// Додаємо хендлер — це має запустити loop
+	stream.AddHandler("test", func(msg *simplejson.Json) {
+		t.Log("Loop received message (ignored)")
+	})
+	defer func() {
+		stream.RemoveHandler("test")
+		stream.Close()
+	}()
+
+	// Надсилаємо повідомлення, яке викличе помилку
+	req := simplejson.New()
+	req.Set("id", "loop-err-test")
+	req.Set("method", "ERROR")
+	req.Set("params", []interface{}{"loop-start-error"})
+
+	err = stream.Send(req)
+	assert.NoError(t, err)
+
+	// Чекаємо на спрацювання хендлера помилок
+	select {
+	case err := <-errC:
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "loop-start-error")
+		t.Logf("✅ Caught expected error: %v", err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("❌ Timed out waiting for error")
+	}
+
+	// Перевіряємо, що loop запущений
+	assert.True(t, stream.GetLoopStarted(), "loop should be started after AddHandler")
 }

@@ -2,7 +2,6 @@ package web_socket
 
 import (
 	"fmt"
-	"net"
 	"strings"
 	"time"
 
@@ -64,34 +63,27 @@ func (ws *WebSocketWrapper) isFatalCloseError(err error) bool {
 
 // Читання відповіді
 func (ws *WebSocketWrapper) Read() (response *simplejson.Json, err error) {
-	var body []byte
-
 	if ws.socketClosed {
-		err = ws.errorHandler(fmt.Errorf("socket is closed"))
-		return
+		return nil, ws.errorHandler(fmt.Errorf("socket is closed"))
 	}
 
-	// 🔥 Встановлюємо таймаут читання
-	ws.conn.SetReadDeadline(time.Now().Add(1 * time.Second))
-
-	_, body, err = ws.conn.ReadMessage()
+	dl_err := ws.conn.SetReadDeadline(time.Now().Add(1 * time.Second))
+	if dl_err != nil {
+		return nil, ws.errorHandler(fmt.Errorf("error setting read deadline: %v", err))
+	}
+	_, body, err := ws.conn.ReadMessage()
 	if err != nil {
-		// Якщо це просто таймаут — не вважаємо фатальним
-		if ne, ok := err.(net.Error); ok && ne.Timeout() {
-			return nil, nil // просто пробуємо знову
-		}
-
-		if ws.isFatalCloseError(err) {
-			err = ws.errorHandler(fmt.Errorf("unexpected close error: %v", err))
-			ws.socketClosed = true
-		} else {
-			err = ws.errorHandler(fmt.Errorf("error reading message: %v", err))
-		}
-		return
+		return nil, err
 	}
 
 	response = ws.Deserialize(body)
-	return
+
+	// ✅ Тут ловимо логічну помилку з JSON
+	if errStr := response.Get("error").MustString(); errStr != "" {
+		return nil, ws.errorHandler(fmt.Errorf("server error: %s", errStr))
+	}
+
+	return response, err
 }
 
 func (ws *WebSocketWrapper) Close() (err error) {
@@ -132,6 +124,10 @@ func (ws *WebSocketWrapper) GetDoneC() chan struct{} {
 
 func (ws *WebSocketWrapper) GetErrorC() chan error {
 	return ws.errorC
+}
+
+func (ws *WebSocketWrapper) GetLoopStartedC() chan struct{} {
+	return ws.loopStartedC
 }
 
 func (ws *WebSocketWrapper) SetTimeOut(timeout time.Duration) {
