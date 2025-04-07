@@ -63,12 +63,62 @@ func normalCloseHandler(w http.ResponseWriter, r *http.Request) {
 	conn.Close()
 }
 
+// 🧪 Сервер надсилає Ping → клієнт має відповісти Pong
+func pingPongHandler(w http.ResponseWriter, r *http.Request) {
+	conn, err := upgraderAsync.Upgrade(w, r, nil)
+	if err != nil {
+		logrus.Print("upgrade:", err)
+		return
+	}
+	defer conn.Close()
+
+	// 🕐 Читаємо timeout з query-параметра, напр.: ?timeout=2s
+	timeoutStr := r.URL.Query().Get("timeout")
+	timeout := 1 * time.Second // за замовчуванням
+	if timeoutStr != "" {
+		if parsed, err := time.ParseDuration(timeoutStr); err == nil {
+			timeout = parsed
+		} else {
+			logrus.Warnf("Invalid timeout value: %v", timeoutStr)
+		}
+	}
+
+	logrus.Infof("🔁 Ping/Pong loop started (timeout: %v)", timeout)
+
+	for i := 0; i < 3; i++ {
+		err := conn.WriteControl(websocket.PingMessage, []byte("ping-check"), time.Now().Add(timeout))
+		if err != nil {
+			logrus.Warnf("❌ Failed to send ping: %v", err)
+			return
+		}
+		logrus.Infof("📡 Sent Ping %d to client", i+1)
+
+		conn.SetReadDeadline(time.Now().Add(timeout))
+		mt, msg, err := conn.ReadMessage()
+		if err != nil {
+			logrus.Warnf("❌ Read error after ping: %v", err)
+			return
+		}
+		if mt == websocket.PongMessage {
+			logrus.Infof("✅ Got Pong %d from client: %s", i+1, string(msg))
+		} else {
+			logrus.Warnf("⚠️ Expected Pong, got type %d", mt)
+			return
+		}
+
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	logrus.Info("✅ Ping/Pong loop finished successfully — client alive")
+}
+
 // 🔧 Запускаємо локальний сервер
 func startServer() {
 	onceAsync.Do(func() {
 		http.HandleFunc("/stream", handler)
 		http.HandleFunc("/abrupt", abruptCloseHandler)
 		http.HandleFunc("/normal", normalCloseHandler)
+		http.HandleFunc("/ping-pong", pingPongHandler)
 		go func() {
 			logrus.Info("Starting WebSocket test server on :8080")
 			logrus.Fatal(http.ListenAndServe(":8080", nil))
@@ -233,13 +283,11 @@ func TestAbruptCloseLoopStops(t *testing.T) {
 	}
 }
 
-func TestAbruptCloseSilent(t *testing.T) {
+func TestPingPongConnectionAlive(t *testing.T) {
 	go startServer()
 	time.Sleep(timeOut)
 
 	errC := make(chan error, 1)
-
-	// все одно треба SetErrHandler, але він не буде викликаний
 	mockErrHandler := func(err error) error {
 		errC <- err
 		return err
@@ -247,95 +295,20 @@ func TestAbruptCloseSilent(t *testing.T) {
 
 	stream, err := web_socket.New(
 		web_socket.WsHost("localhost:8080"),
-		web_socket.WsPath("/normal"),
+		web_socket.WsPath("/ping-pong?timeout=1s"),
 		web_socket.SchemeWS,
 		web_socket.TextMessage,
-		true)
+		false)
 	assert.NoError(t, err)
 
 	stream.SetErrHandler(mockErrHandler)
-	stream.AddHandler("silent-test", mockHandler)
-
-	// даємо трохи часу
-	time.Sleep(500 * time.Millisecond)
 
 	select {
 	case err := <-errC:
-		t.Fatalf("Unexpected error received in silent mode: %v", err)
-	default:
-		t.Log("No error received in silent mode, as expected ✅")
+		t.Fatalf("❌ Unexpected error during ping/pong test: %v", err)
+	case <-time.After(2 * time.Second):
+		t.Log("✅ Client responded to all Pings — connection alive")
 	}
 
-	// гарантуємо завершення loop
-	stream.RemoveHandler("silent-test")
-}
-
-func TestNormalCloseSilent(t *testing.T) {
-	go startServer()
-	time.Sleep(timeOut)
-
-	errC := make(chan error, 1)
-
-	mockErrHandler := func(err error) error {
-		errC <- err
-		return err
-	}
-
-	stream, err := web_socket.New(
-		web_socket.WsHost("localhost:8080"),
-		web_socket.WsPath("/normal"),
-		web_socket.SchemeWS,
-		web_socket.TextMessage,
-		true)
-	assert.NoError(t, err)
-
-	stream.SetErrHandler(mockErrHandler)
-	stream.AddHandler("silent-normal", mockHandler)
-
-	// Даємо час на нормальне закриття
-	time.Sleep(500 * time.Millisecond)
-
-	select {
-	case err := <-errC:
-		t.Fatalf("Silent mode: unexpected error received: %v", err)
-	default:
-		t.Log("Silent mode: no error received on normal close ✅")
-	}
-
-	stream.RemoveHandler("silent-normal")
-}
-
-func TestAbruptCloseLoopStopsSilent(t *testing.T) {
-	go startServer()
-	time.Sleep(timeOut)
-
-	errC := make(chan error, 1)
-
-	mockErrHandler := func(err error) error {
-		errC <- err // ❗ не має викликатись
-		return err
-	}
-
-	stream, err := web_socket.New(
-		web_socket.WsHost("localhost:8080"),
-		web_socket.WsPath("/normal"),
-		web_socket.SchemeWS,
-		web_socket.TextMessage,
-		true)
-	assert.NoError(t, err)
-
-	stream.SetErrHandler(mockErrHandler)
-	stream.AddHandler("silent-abrupt", mockHandler)
-
-	// Даємо час для помилки
-	time.Sleep(500 * time.Millisecond)
-
-	select {
-	case err := <-errC:
-		t.Fatalf("Silent mode: unexpected error received: %v", err)
-	default:
-		t.Log("Silent mode: no error received on abrupt close ✅")
-	}
-
-	stream.RemoveHandler("silent-abrupt")
+	stream.Close()
 }

@@ -107,8 +107,11 @@ func (ws *WebSocketWrapper) Close() (err error) {
 }
 
 func (ws *WebSocketWrapper) errorHandler(err error) error {
-	if ws.errHandler != nil && !ws.silent {
+	if ws.errHandler != nil {
 		ws.errHandler(err)
+	}
+	if !ws.silent {
+		fmt.Println(err)
 	}
 	return err
 }
