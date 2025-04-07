@@ -2,6 +2,7 @@ package web_socket
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/bitly/go-simplejson"
@@ -39,6 +40,11 @@ func (ws *WebSocketWrapper) Send(request *simplejson.Json) (err error) {
 }
 
 func (ws *WebSocketWrapper) isFatalCloseError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	// Якщо це саме CloseError — перевіряємо код
 	if closeErr, ok := err.(*websocket.CloseError); ok {
 		switch closeErr.Code {
 		case websocket.CloseNormalClosure,
@@ -47,6 +53,15 @@ func (ws *WebSocketWrapper) isFatalCloseError(err error) bool {
 			return true
 		}
 	}
+
+	// Якщо ні — шукаємо згадку про код 1006 у тексті помилки
+	errStr := err.Error()
+	if strings.Contains(errStr, "close 1006") ||
+		strings.Contains(errStr, "connection reset by peer") ||
+		strings.Contains(errStr, "use of closed network connection") {
+		return true
+	}
+
 	return false
 }
 
