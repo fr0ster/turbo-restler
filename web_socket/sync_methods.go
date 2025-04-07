@@ -74,12 +74,14 @@ func (ws *WebSocketWrapper) Read() (response *simplejson.Json, err error) {
 
 func (ws *WebSocketWrapper) Close() (err error) {
 	ws.cancel()
-	err = ws.conn.Close()
-	if err != nil {
-		err = ws.errorHandler(fmt.Errorf("error closing connection: %v", err))
-		return
+	if ws.conn != nil {
+		err = ws.conn.Close()
+		if err != nil {
+			err = ws.errorHandler(fmt.Errorf("error closing connection: %v", err))
+			return
+		}
+		ws.conn = nil
 	}
-	ws.conn = nil
 	ws = nil
 	return
 }
