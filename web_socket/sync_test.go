@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -265,4 +267,63 @@ func TestWebApiNormalClose(t *testing.T) {
 	if !closeCalled {
 		t.Error("Expected CloseHandler to be called on normal close")
 	}
+}
+
+func TestWebApiParallelRequests(t *testing.T) {
+	go startWebSocketServer()
+	time.Sleep(timeOut)
+
+	const parallelClients = 2
+	var wg sync.WaitGroup
+	wg.Add(parallelClients)
+
+	for i := 0; i < parallelClients; i++ {
+		go func(id int) {
+			defer wg.Done()
+
+			api, err := web_socket.New(
+				web_socket.WsHost("localhost:8081"),
+				web_socket.WsPath("/ws"),
+				web_socket.SchemeWS,
+				web_socket.TextMessage,
+				true)
+			if err != nil {
+				t.Errorf("Client %d: error creating WebSocket API: %v", id, err)
+				return
+			}
+
+			request := simplejson.New()
+			request.Set("id", id)
+			request.Set("method", "with-params")
+			request.Set("params", fmt.Sprintf("Hello from client %d", id))
+
+			err = api.Send(request)
+			if err != nil {
+				t.Errorf("Client %d: Send error: %v", id, err)
+				return
+			}
+
+			response, err := api.Read()
+			if err != nil {
+				t.Errorf("Client %d: Read error: %v", id, err)
+				return
+			}
+
+			t.Logf("Client %d received: %s", id, response.MustString())
+
+			expectedParam := fmt.Sprintf("Hello from client %d", id)
+			actualParam, _ := response.Get("response").String()
+			if !contains(actualParam, expectedParam) {
+				t.Errorf("Client %d: expected '%s', got '%s'", id, expectedParam, actualParam)
+			}
+			// }
+		}(i)
+	}
+
+	wg.Wait()
+}
+
+// contains - простий хелпер для перевірки підрядка
+func contains(s, substr string) bool {
+	return strings.Contains(s, substr)
 }
