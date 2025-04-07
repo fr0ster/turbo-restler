@@ -452,7 +452,7 @@ func TestStartLocalStreamerParallel(t *testing.T) {
 	go startServer()
 	time.Sleep(timeOut)
 
-	const parallelClients = 3
+	const parallelClients = 20
 	var wg sync.WaitGroup
 	wg.Add(parallelClients)
 
@@ -478,6 +478,53 @@ func TestStartLocalStreamerParallel(t *testing.T) {
 			assert.NotNil(t, stream)
 			stream.SetErrHandler(mockErrHandler)
 			defer stream.Close()
+
+			handlerID := fmt.Sprintf("handler-%d", id)
+			stream.AddHandler(handlerID, mockHandler)
+			time.Sleep(10 * time.Millisecond) // трохи почекати
+			stream.RemoveHandler(handlerID)
+		}(i)
+	}
+
+	wg.Wait()
+
+	// Перевірка на помилки
+	close(errC)
+	for err := range errC {
+		assert.NoError(t, err)
+	}
+}
+
+func TestStartLocalStreamerParallelV2(t *testing.T) {
+	go startServer()
+	time.Sleep(timeOut)
+
+	const parallelClients = 20
+	var wg sync.WaitGroup
+	wg.Add(parallelClients)
+
+	errC := make(chan error, parallelClients)
+
+	mockErrHandler := func(err error) error {
+		errC <- err
+		return err
+	}
+
+	stream, err := web_socket.New(
+		web_socket.WsHost("localhost:8080"),
+		web_socket.WsPath("/stream"),
+		web_socket.SchemeWS,
+		web_socket.TextMessage,
+		true)
+	assert.NoError(t, err)
+	assert.NotNil(t, stream)
+	stream.SetErrHandler(mockErrHandler)
+	defer stream.Close()
+
+	// Паралельно додаємо/видаляємо handler-и
+	for i := 0; i < parallelClients; i++ {
+		go func(id int) {
+			defer wg.Done()
 
 			handlerID := fmt.Sprintf("handler-%d", id)
 			stream.AddHandler(handlerID, mockHandler)
