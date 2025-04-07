@@ -33,8 +33,6 @@ func (ws *WebSocketWrapper) loop() (err error) {
 				}
 			}
 		}()
-	} else {
-		err = fmt.Errorf("inner loop is already running")
 	}
 	ws.doneC <- struct{}{} // ✅ перший сигнал (від основного потоку)
 
