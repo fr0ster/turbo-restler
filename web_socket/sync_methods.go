@@ -31,6 +31,10 @@ func (ws *WebSocketWrapper) Send(request *simplejson.Json) (err error) {
 	requestBody := ws.Serialize(request)
 
 	// Відправка запиту
+	if ws.getConn() == nil {
+		err = fmt.Errorf("connection is nil")
+		return
+	}
 	err = ws.getConn().WriteMessage(int(ws.messageType), requestBody)
 	if err != nil {
 		err = fmt.Errorf("error sending message: %v", err)
