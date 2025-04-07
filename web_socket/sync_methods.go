@@ -116,6 +116,10 @@ func (ws *WebSocketWrapper) errorHandler(err error) error {
 	return err
 }
 
+func (ws *WebSocketWrapper) ErrorHandler() ErrHandler {
+	return ws.errorHandler
+}
+
 func (ws *WebSocketWrapper) GetDoneC() chan struct{} {
 	return ws.doneC
 }
