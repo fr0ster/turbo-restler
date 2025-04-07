@@ -65,6 +65,7 @@ type (
 		errHandler   ErrHandler
 		mutex        *sync.Mutex
 		doneC        chan struct{}
+		errorC       chan error
 		timeOut      time.Duration
 		loopStarted  bool
 		socketClosed bool

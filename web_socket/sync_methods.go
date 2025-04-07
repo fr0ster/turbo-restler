@@ -113,6 +113,12 @@ func (ws *WebSocketWrapper) errorHandler(err error) error {
 	if !ws.silent {
 		fmt.Println(err)
 	}
+	if ws.errorC != nil {
+		select {
+		case ws.errorC <- err:
+		default:
+		}
+	}
 	return err
 }
 
@@ -122,6 +128,10 @@ func (ws *WebSocketWrapper) ErrorHandler() ErrHandler {
 
 func (ws *WebSocketWrapper) GetDoneC() chan struct{} {
 	return ws.doneC
+}
+
+func (ws *WebSocketWrapper) GetErrorC() chan error {
+	return ws.errorC
 }
 
 func (ws *WebSocketWrapper) SetTimeOut(timeout time.Duration) {
