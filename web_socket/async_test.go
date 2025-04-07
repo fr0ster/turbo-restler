@@ -2,7 +2,9 @@ package web_socket_test
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
+	"sync"
 	"testing"
 	"time"
 
@@ -208,11 +210,12 @@ func TestStartLocalStreamer(t *testing.T) {
 		errC <- err
 		return err
 	}
-	checkErr := func() {
+	checkNoErr := func() {
 		select {
 		case err := <-errC:
-			assert.NoError(t, err)
+			t.Errorf("unexpected error received: %v", err)
 		case <-time.After(timeOut):
+			t.Log("✅ no error received, as expected")
 		}
 	}
 
@@ -226,11 +229,11 @@ func TestStartLocalStreamer(t *testing.T) {
 	assert.NotNil(t, stream)
 	stream.SetErrHandler(mockErrHandler)
 	stream.AddHandler("default", mockHandler)
-	checkErr()
+	checkNoErr()
 
 	time.Sleep(timeOut)
 	stream.RemoveHandler("default")
-	checkErr()
+	checkNoErr()
 }
 
 // ❌ Раптове закриття з’єднання сервером
@@ -443,4 +446,51 @@ func TestWebSocketWrapper_LoopStartsWithAddHandler(t *testing.T) {
 
 	// Перевіряємо, що loop справді запущено
 	assert.True(t, stream.GetLoopStarted(), "loop should be started after AddHandler")
+}
+
+func TestStartLocalStreamerParallel(t *testing.T) {
+	go startServer()
+	time.Sleep(timeOut)
+
+	const parallelClients = 3
+	var wg sync.WaitGroup
+	wg.Add(parallelClients)
+
+	errC := make(chan error, parallelClients)
+
+	mockErrHandler := func(err error) error {
+		errC <- err
+		return err
+	}
+
+	// Паралельно додаємо/видаляємо handler-и
+	for i := 0; i < parallelClients; i++ {
+		go func(id int) {
+			defer wg.Done()
+
+			stream, err := web_socket.New(
+				web_socket.WsHost("localhost:8080"),
+				web_socket.WsPath("/stream"),
+				web_socket.SchemeWS,
+				web_socket.TextMessage,
+				true)
+			assert.NoError(t, err)
+			assert.NotNil(t, stream)
+			stream.SetErrHandler(mockErrHandler)
+			defer stream.Close()
+
+			handlerID := fmt.Sprintf("handler-%d", id)
+			stream.AddHandler(handlerID, mockHandler)
+			time.Sleep(10 * time.Millisecond) // трохи почекати
+			stream.RemoveHandler(handlerID)
+		}(i)
+	}
+
+	wg.Wait()
+
+	// Перевірка на помилки
+	close(errC)
+	for err := range errC {
+		assert.NoError(t, err)
+	}
 }

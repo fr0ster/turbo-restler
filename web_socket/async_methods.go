@@ -35,35 +35,35 @@ func (ws *WebSocketWrapper) loop() error {
 		}()
 
 		for {
-			if ws.ctx.Err() != nil || ws.socketClosed {
-				logrus.Info("🔚 loop exiting due to ctx or closed socket")
+			select {
+			case <-ws.ctx.Done():
+				logrus.Info("🔚 loop exiting due to ctx.Done()")
 				return
-			}
-
-			if ws.getConn() == nil {
-				time.Sleep(100 * time.Millisecond)
-				continue
-			}
-
-			_ = ws.getConn().SetReadDeadline(time.Now().Add(1 * time.Second))
-			response, err := ws.Read()
-
-			if err != nil {
-				if ws.isFatalCloseError(err) {
-					ws.errorHandler(err)
-					return
+			default:
+				if ws.getConn() == nil {
+					time.Sleep(100 * time.Millisecond)
+					continue
 				}
-				ws.errorHandler(err)
-				continue
-			}
 
-			if len(ws.callBackMap) == 0 {
-				continue
-			}
+				response, err := ws.Read()
 
-			for _, cb := range ws.callBackMap {
-				if cb != nil {
-					cb(response)
+				if err != nil {
+					if ws.isFatalCloseError(err) {
+						ws.errorHandler(err)
+						return
+					}
+					ws.errorHandler(err)
+					continue
+				}
+
+				if len(ws.callBackMap) == 0 {
+					continue
+				}
+
+				for _, cb := range ws.callBackMap {
+					if cb != nil {
+						cb(response)
+					}
 				}
 			}
 		}
@@ -79,8 +79,11 @@ func (ws *WebSocketWrapper) SetErrHandler(errHandler ErrHandler) *WebSocketWrapp
 }
 
 func (ws *WebSocketWrapper) AddHandler(handlerId string, handler WsHandler) *WebSocketWrapper {
+	ws.addHandlerMutex.Lock()
+	defer ws.addHandlerMutex.Unlock()
 	if _, ok := ws.callBackMap[handlerId]; !ok {
 		ws.callBackMap[handlerId] = handler
+		logrus.Infof("🔁 added handler %s", handlerId)
 	} else {
 		ws.errorHandler(fmt.Errorf("handler with id %s already exists", handlerId))
 		return ws
@@ -100,6 +103,8 @@ func (ws *WebSocketWrapper) AddHandler(handlerId string, handler WsHandler) *Web
 }
 
 func (ws *WebSocketWrapper) RemoveHandler(handlerId string) *WebSocketWrapper {
+	ws.removeHandlerMutex.Lock()
+	defer ws.removeHandlerMutex.Unlock()
 	if _, ok := ws.callBackMap[handlerId]; ok {
 		delete(ws.callBackMap, handlerId)
 		logrus.Infof("🗑 removed handler %s", handlerId)
@@ -119,7 +124,7 @@ func (ws *WebSocketWrapper) RemoveHandler(handlerId string) *WebSocketWrapper {
 		case <-ws.doneC:
 			logrus.Info("✅ loop finished after handler removal")
 		case <-time.After(ws.timeOut):
-			ws.errorHandler(fmt.Errorf("timeout while waiting for loop to stop"))
+			ws.errorHandler(fmt.Errorf("RemoveHandler: timeout while waiting for loop to stop"))
 		}
 	}
 

@@ -323,6 +323,64 @@ func TestWebApiParallelRequests(t *testing.T) {
 	wg.Wait()
 }
 
+func TestWebApiParallelRequestsV2(t *testing.T) {
+	go startWebSocketServer()
+	time.Sleep(timeOut)
+
+	const parallelClients = 20
+	var wg sync.WaitGroup
+	wg.Add(parallelClients)
+
+	api, err := web_socket.New(
+		web_socket.WsHost("localhost:8081"),
+		web_socket.WsPath("/ws"),
+		web_socket.SchemeWS,
+		web_socket.TextMessage,
+		true)
+	if err != nil {
+		t.Errorf("Client: error creating WebSocket API: %v", err)
+		return
+	}
+
+	lock := sync.Mutex{}
+
+	for i := 0; i < parallelClients; i++ {
+		go func(id int) {
+			defer wg.Done()
+
+			request := simplejson.New()
+			request.Set("id", id)
+			request.Set("method", "with-params")
+			request.Set("params", fmt.Sprintf("Hello from client %d", id))
+
+			lock.Lock()
+			err = api.Send(request)
+			if err != nil {
+				t.Errorf("Client %d: Send error: %v", id, err)
+				return
+			}
+
+			response, err := api.Read()
+			lock.Unlock()
+			if err != nil {
+				t.Errorf("Client %d: Read error: %v", id, err)
+				return
+			}
+
+			t.Logf("Client %d received: %s", id, response.MustString())
+
+			expectedParam := fmt.Sprintf("Hello from client %d", id)
+			actualParam, _ := response.Get("response").String()
+			if !contains(actualParam, expectedParam) {
+				t.Errorf("Client %d: expected '%s', got '%s'", id, expectedParam, actualParam)
+			}
+			// }
+		}(i)
+	}
+
+	wg.Wait()
+}
+
 // contains - простий хелпер для перевірки підрядка
 func contains(s, substr string) bool {
 	return strings.Contains(s, substr)
