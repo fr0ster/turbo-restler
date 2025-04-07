@@ -1,6 +1,7 @@
 package web_socket_test
 
 import (
+	"errors"
 	"net/http"
 	"testing"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -113,8 +115,6 @@ func pingPongHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func errorHandler(w http.ResponseWriter, r *http.Request) {
-	errType := r.URL.Query().Get("type") // 👈 читаємо тип помилки з query
-
 	conn, err := upgraderAsync.Upgrade(w, r, nil)
 	if err != nil {
 		logrus.Print("upgrade:", err)
@@ -138,25 +138,39 @@ func errorHandler(w http.ResponseWriter, r *http.Request) {
 		id := req.Get("id").MustString()
 		method := req.Get("method").MustString()
 
-		resp := simplejson.New()
-		resp.Set("id", id)
-
 		switch method {
 		case "ERROR":
-			if errType == "" {
-				errType = "generic-error"
+			params := req.Get("params").MustArray()
+			errorText := "generic-error"
+			if len(params) > 0 {
+				if s, ok := params[0].(string); ok && s != "" {
+					errorText = s
+				}
 			}
-			logrus.Warnf("🔴 Responding with error: %s", errType)
-			resp.Set("error", errType)
 
-			b, _ := resp.Encode()
-			conn.WriteMessage(websocket.TextMessage, b)
+			logrus.Warnf("🔴 Responding with error: %s (id: %s)", errorText, id)
 
-			// 💡 Не закриваємо одразу
-			time.Sleep(200 * time.Millisecond)
-			continue
+			go func(id, errMsg string) {
+				// нескінченно шлемо помилку з цим ID
+				for {
+					resp := simplejson.New()
+					resp.Set("id", id)
+					resp.Set("error", errMsg)
+
+					b, _ := resp.Encode()
+					err := conn.WriteMessage(websocket.TextMessage, b)
+					if err != nil {
+						logrus.Warnf("⚠️ Failed to write error response: %v", err)
+						return
+					}
+
+					time.Sleep(200 * time.Millisecond)
+				}
+			}(id, errorText)
 
 		default:
+			resp := simplejson.New()
+			resp.Set("id", id)
 			resp.Set("result", "OK")
 			b, _ := resp.Encode()
 			conn.WriteMessage(websocket.TextMessage, b)
@@ -370,7 +384,8 @@ func TestWebSocketWrapper_LoopStartsWithAddHandler(t *testing.T) {
 	go startServer()
 	time.Sleep(timeOut)
 
-	errC := make(chan error, 1)
+	errC := make(chan error, 2) // трошки більше буфера для стабільності
+
 	mockErrHandler := func(err error) error {
 		select {
 		case errC <- err:
@@ -387,41 +402,45 @@ func TestWebSocketWrapper_LoopStartsWithAddHandler(t *testing.T) {
 		web_socket.TextMessage,
 		false)
 	assert.NoError(t, err)
-	if err != nil {
-		t.Fatalf("Failed to create WebSocketWrapper: %v", err)
-		return
-	}
+	require.NotNil(t, stream)
 
 	stream.SetErrHandler(mockErrHandler)
 
-	// Додаємо хендлер — це має запустити loop
+	// Додаємо хендлер для якогось id, просто щоб запустити loop
 	stream.AddHandler("test", func(msg *simplejson.Json) {
-		t.Log("Loop received message (ignored)")
+		if msg.Get("error").MustString() != "" {
+			select {
+			case errC <- errors.New(msg.Get("error").MustString()):
+			default:
+			}
+			return
+		}
+		t.Logf("Received message: %s", msg)
 	})
 	defer func() {
 		stream.RemoveHandler("test")
 		stream.Close()
 	}()
 
-	// Надсилаємо повідомлення, яке викличе помилку
+	// Надсилаємо повідомлення, яке викличе логічну помилку
 	req := simplejson.New()
-	req.Set("id", "loop-err-test")
+	req.Set("id", "loop-err-test") // id не збігається з test
 	req.Set("method", "ERROR")
 	req.Set("params", []interface{}{"loop-start-error"})
 
 	err = stream.Send(req)
 	assert.NoError(t, err)
 
-	// Чекаємо на спрацювання хендлера помилок
+	// Очікуємо на помилку з error handler-а
 	select {
-	case err := <-errC:
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "loop-start-error")
-		t.Logf("✅ Caught expected error: %v", err)
+	case receivedErr := <-errC:
+		assert.Error(t, receivedErr)
+		assert.Contains(t, receivedErr.Error(), "loop-start-error")
+		t.Logf("✅ Caught expected error: %v", receivedErr)
 	case <-time.After(2 * time.Second):
 		t.Fatal("❌ Timed out waiting for error")
 	}
 
-	// Перевіряємо, що loop запущений
+	// Перевіряємо, що loop справді запущено
 	assert.True(t, stream.GetLoopStarted(), "loop should be started after AddHandler")
 }

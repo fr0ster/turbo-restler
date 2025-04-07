@@ -14,7 +14,7 @@ func (ws *WebSocketWrapper) loop() error {
 	}
 
 	if !ws.mutex.TryLock() {
-		return nil // вже працює
+		return nil
 	}
 
 	ws.ctx, ws.cancel = context.WithCancel(context.Background())
@@ -35,32 +35,23 @@ func (ws *WebSocketWrapper) loop() error {
 		}()
 
 		for {
-			// ctx cancellation check
-			if ws.ctx.Err() != nil {
-				logrus.Info("🟡 loop: ctx canceled")
+			if ws.ctx.Err() != nil || ws.socketClosed {
+				logrus.Info("🔚 loop exiting due to ctx or closed socket")
 				return
 			}
 
-			// Set read timeout to allow ctx.Done() check
 			_ = ws.conn.SetReadDeadline(time.Now().Add(1 * time.Second))
-
 			response, err := ws.Read()
+
 			if err != nil {
 				if ws.isFatalCloseError(err) {
-					logrus.Warnf("💥 fatal close error: %v", err)
-					ws.errorHandler(err) // обробляємо після cancel
-					ws.stopOnce.Do(func() {
-						ws.cancel()
-					})
+					ws.errorHandler(err)
 					return
 				}
-
-				logrus.Warnf("⚠️ non-fatal read error: %v", err)
-				_ = ws.errorHandler(err)
+				ws.errorHandler(err)
 				continue
 			}
 
-			// Якщо handler-и зникли під час виклику попереднього cb
 			if len(ws.callBackMap) == 0 {
 				continue
 			}

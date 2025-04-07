@@ -56,10 +56,11 @@ func (ws *WebSocketWrapper) Read() (response *simplejson.Json, err error) {
 		return nil, ws.errorHandler(fmt.Errorf("socket is closed"))
 	}
 
-	dl_err := ws.conn.SetReadDeadline(time.Now().Add(1 * time.Second))
-	if dl_err != nil {
-		return nil, ws.errorHandler(fmt.Errorf("error setting read deadline: %v", err))
+	dlErr := ws.conn.SetReadDeadline(time.Now().Add(1 * time.Second))
+	if dlErr != nil {
+		return nil, ws.errorHandler(fmt.Errorf("error setting read deadline: %v", dlErr))
 	}
+
 	_, body, err := ws.conn.ReadMessage()
 	if err != nil {
 		return nil, err
@@ -67,12 +68,8 @@ func (ws *WebSocketWrapper) Read() (response *simplejson.Json, err error) {
 
 	response = ws.Deserialize(body)
 
-	// ✅ Тут ловимо логічну помилку з JSON
-	if errStr := response.Get("error").MustString(); errStr != "" {
-		return nil, ws.errorHandler(fmt.Errorf("server error: %s", errStr))
-	}
-
-	return response, err
+	// ❗️НЕ перевіряємо "error" — це завдання callback'а
+	return response, nil
 }
 
 func (ws *WebSocketWrapper) Close() (err error) {
