@@ -2,7 +2,6 @@ package web_socket
 
 import (
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/bitly/go-simplejson"
@@ -40,24 +39,14 @@ func (ws *WebSocketWrapper) Send(request *simplejson.Json) (err error) {
 }
 
 func (ws *WebSocketWrapper) isFatalCloseError(err error) bool {
-	if ce, ok := err.(*websocket.CloseError); ok {
-		switch ce.Code {
-		case
-			websocket.CloseNormalClosure,     // 1000
-			websocket.CloseGoingAway,         // 1001
-			websocket.CloseAbnormalClosure,   // 1006
-			websocket.CloseInternalServerErr, // 1011
-			websocket.CloseServiceRestart:    // 1012
+	if closeErr, ok := err.(*websocket.CloseError); ok {
+		switch closeErr.Code {
+		case websocket.CloseNormalClosure,
+			websocket.CloseAbnormalClosure,
+			websocket.CloseGoingAway:
 			return true
 		}
 	}
-
-	// Або перевірка по тексту (якщо CloseError не був сформований)
-	if err != nil && (strings.Contains(err.Error(), "use of closed network connection") ||
-		strings.Contains(err.Error(), "EOF")) {
-		return true
-	}
-
 	return false
 }
 

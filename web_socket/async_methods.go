@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
 func (ws *WebSocketWrapper) loop() error {
@@ -11,63 +13,67 @@ func (ws *WebSocketWrapper) loop() error {
 		return fmt.Errorf("no handlers")
 	}
 
-	if ws.mutex.TryLock() {
-		ws.ctx, ws.cancel = context.WithCancel(context.Background())
-		ws.doneC = make(chan struct{})
-		ws.loopStarted = true
+	if !ws.mutex.TryLock() {
+		return nil // вже працює
+	}
 
-		go func() {
-			defer func() {
-				ws.stopOnce.Do(func() {
+	ws.ctx, ws.cancel = context.WithCancel(context.Background())
+	ws.doneC = make(chan struct{})
+	ws.loopStarted = true
+
+	go func() {
+		defer func() {
+			logrus.Info("🛑 loop: exiting")
+			ws.stopOnce.Do(func() {
+				if ws.cancel != nil {
 					ws.cancel()
-				})
-				ws.loopStarted = false
-				ws.mutex.Unlock()
-			}()
+				}
+			})
+			close(ws.doneC)
+			ws.loopStarted = false
+			ws.mutex.Unlock()
+		}()
 
-			for {
-				select {
-				case <-ws.ctx.Done():
-					close(ws.doneC)
+		for {
+			// ctx cancellation check
+			if ws.ctx.Err() != nil {
+				logrus.Info("🟡 loop: ctx canceled")
+				return
+			}
+
+			// Set read timeout to allow ctx.Done() check
+			_ = ws.conn.SetReadDeadline(time.Now().Add(1 * time.Second))
+
+			response, err := ws.Read()
+			if err != nil {
+				if ws.isFatalCloseError(err) {
+					logrus.Warnf("💥 fatal close error: %v", err)
+					ws.errorHandler(err) // обробляємо після cancel
+					ws.stopOnce.Do(func() {
+						ws.cancel()
+					})
 					return
-				default:
-					select {
-					case <-ws.ctx.Done():
-						close(ws.doneC)
-						return
-					default:
-						response, err := ws.Read()
-						if err != nil {
-							ws.errorHandler(err)
-							// 🧠 Якщо помилка критична — закриваємо
-							if ws.isFatalCloseError(err) {
-								ws.stopOnce.Do(func() {
-									ws.cancel()
-								})
-								close(ws.doneC)
-								return
-							}
+				}
 
-							// ❗️Інакше просто логічна помилка — продовжуємо
-							continue
-						}
+				logrus.Warnf("⚠️ non-fatal read error: %v", err)
+				_ = ws.errorHandler(err)
+				continue
+			}
 
-						if len(ws.callBackMap) == 0 {
-							continue
-						}
+			// Якщо handler-и зникли під час виклику попереднього cb
+			if len(ws.callBackMap) == 0 {
+				continue
+			}
 
-						for _, cb := range ws.callBackMap {
-							if cb != nil {
-								cb(response)
-							}
-						}
-					}
+			for _, cb := range ws.callBackMap {
+				if cb != nil {
+					cb(response)
 				}
 			}
-		}()
-	}
-	ws.loopStartedC <- struct{}{}
+		}
+	}()
 
+	ws.loopStartedC <- struct{}{}
 	return nil
 }
 
@@ -99,27 +105,28 @@ func (ws *WebSocketWrapper) AddHandler(handlerId string, handler WsHandler) *Web
 
 func (ws *WebSocketWrapper) RemoveHandler(handlerId string) *WebSocketWrapper {
 	if _, ok := ws.callBackMap[handlerId]; ok {
-		ws.callBackMap[handlerId] = nil
 		delete(ws.callBackMap, handlerId)
+		logrus.Infof("🗑 removed handler %s", handlerId)
 	} else {
 		ws.errorHandler(fmt.Errorf("handler with id %s does not exist", handlerId))
 		return ws
 	}
+
 	if len(ws.callBackMap) == 0 {
 		ws.stopOnce.Do(func() {
-			ws.cancel()
-		})
-		ws.loopStarted = false
-		for {
-			select {
-			case <-ws.doneC: // Wait for the loop to stop
-				return ws
-			case <-time.After(ws.timeOut): // Timeout
-				ws.errorHandler(fmt.Errorf("timeout"))
-				return ws
+			if ws.cancel != nil {
+				ws.cancel()
 			}
+		})
+
+		select {
+		case <-ws.doneC:
+			logrus.Info("✅ loop finished after handler removal")
+		case <-time.After(ws.timeOut):
+			ws.errorHandler(fmt.Errorf("timeout while waiting for loop to stop"))
 		}
 	}
+
 	return ws
 }
 

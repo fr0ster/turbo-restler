@@ -372,7 +372,11 @@ func TestWebSocketWrapper_LoopStartsWithAddHandler(t *testing.T) {
 
 	errC := make(chan error, 1)
 	mockErrHandler := func(err error) error {
-		errC <- err
+		select {
+		case errC <- err:
+		default:
+			t.Logf("⚠️ errC full, dropping error: %v", err)
+		}
 		return err
 	}
 
