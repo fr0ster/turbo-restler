@@ -31,7 +31,7 @@ func (ws *WebSocketWrapper) Send(request *simplejson.Json) (err error) {
 	requestBody := ws.Serialize(request)
 
 	// Відправка запиту
-	err = ws.conn.WriteMessage(int(ws.messageType), requestBody)
+	err = ws.getConn().WriteMessage(int(ws.messageType), requestBody)
 	if err != nil {
 		err = fmt.Errorf("error sending message: %v", err)
 		return
@@ -71,12 +71,12 @@ func (ws *WebSocketWrapper) Read() (response *simplejson.Json, err error) {
 		return nil, ws.errorHandler(fmt.Errorf("socket is closed"))
 	}
 
-	dlErr := ws.conn.SetReadDeadline(time.Now().Add(1 * time.Second))
+	dlErr := ws.getConn().SetReadDeadline(time.Now().Add(1 * time.Second))
 	if dlErr != nil {
 		return nil, ws.errorHandler(fmt.Errorf("error setting read deadline: %v", dlErr))
 	}
 
-	_, body, err := ws.conn.ReadMessage()
+	_, body, err := ws.getConn().ReadMessage()
 	if err != nil {
 		return nil, err
 	}
@@ -89,13 +89,13 @@ func (ws *WebSocketWrapper) Read() (response *simplejson.Json, err error) {
 
 func (ws *WebSocketWrapper) Close() (err error) {
 	ws.cancel()
-	if ws.conn != nil {
-		err = ws.conn.Close()
+	if ws.getConn() != nil {
+		err = ws.getConn().Close()
 		if err != nil {
 			err = ws.errorHandler(fmt.Errorf("error closing connection: %v", err))
 			return
 		}
-		ws.conn = nil
+		ws.setConn(nil)
 	}
 	ws = nil
 	return
@@ -135,6 +135,6 @@ func (ws *WebSocketWrapper) GetLoopStartedC() chan struct{} {
 
 func (ws *WebSocketWrapper) SetTimeOut(timeout time.Duration) {
 	ws.timeOut = timeout
-	ws.conn.SetReadDeadline(time.Now().Add(timeout))
-	ws.conn.SetWriteDeadline(time.Now().Add(timeout))
+	ws.getConn().SetReadDeadline(time.Now().Add(timeout))
+	ws.getConn().SetWriteDeadline(time.Now().Add(timeout))
 }
