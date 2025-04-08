@@ -65,15 +65,6 @@ func New(
 	return
 }
 
-func (ws *WebSocketWrapper) GetConnection() *websocket.Conn {
-	// Отримання з'єднання
-	conn, ok := ws.conn.Load().(*websocket.Conn)
-	if !ok {
-		return nil
-	}
-	return conn
-}
-
 func (ws *WebSocketWrapper) getConn() *websocket.Conn {
 	// Отримання з'єднання
 	conn, ok := ws.conn.Load().(*websocket.Conn)

@@ -501,7 +501,7 @@ func TestPingHandler_RespondsToClientPings(t *testing.T) {
 	// 🎯 обов’язково читаємо з'єднання, інакше pong не обробиться
 	go func() {
 		for {
-			if _, _, err := ws.GetConnection().ReadMessage(); err != nil {
+			if _, err := ws.Read(); err != nil {
 				return
 			}
 		}
