@@ -116,6 +116,85 @@ func pingPongHandler(w http.ResponseWriter, r *http.Request) {
 	logrus.Info("✅ Ping/Pong loop finished successfully — client alive")
 }
 
+func pingHandler(w http.ResponseWriter, r *http.Request) {
+	conn, err := upgraderAsync.Upgrade(w, r, nil)
+	if err != nil {
+		logrus.Print("upgrade:", err)
+		return
+	}
+	defer conn.Close()
+
+	logrus.Info("📡 Client connected to pingHandler")
+
+	conn.SetPingHandler(func(appData string) error {
+		logrus.Infof("📥 Received PING: %s", appData)
+		return conn.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(time.Second))
+	})
+
+	// Просто читаємо будь-які повідомлення, щоб зберегти з’єднання
+	for {
+		_, _, err := conn.ReadMessage()
+		if err != nil {
+			logrus.Warnf("🔌 Connection closed: %v", err)
+			break
+		}
+	}
+}
+
+func pongHandler(w http.ResponseWriter, r *http.Request) {
+	conn, err := upgraderAsync.Upgrade(w, r, nil)
+	if err != nil {
+		logrus.Print("upgrade:", err)
+		return
+	}
+	defer conn.Close()
+
+	timeout := 2 * time.Second // default
+	if t := r.URL.Query().Get("timeout"); t != "" {
+		if parsed, err := time.ParseDuration(t); err == nil {
+			timeout = parsed
+		} else {
+			logrus.Warnf("Invalid timeout: %s", t)
+		}
+	}
+
+	var lastPongMu sync.Mutex
+	lastPong := time.Now()
+
+	conn.SetPongHandler(func(appData string) error {
+		logrus.Infof("📥 Received PONG: %s", appData)
+		lastPongMu.Lock()
+		lastPong = time.Now()
+		lastPongMu.Unlock()
+		return nil
+	})
+
+	ticker := time.NewTicker(timeout / 2)
+	defer ticker.Stop()
+
+	logrus.Infof("🔁 pongHandler started with timeout %v", timeout)
+
+	for range ticker.C {
+		if err := conn.WriteControl(websocket.PingMessage, []byte("server-ping"), time.Now().Add(time.Second)); err != nil {
+			logrus.Warnf("❌ Failed to send ping: %v", err)
+			return
+		}
+		logrus.Info("📡 Sent ping to client")
+
+		lastPongMu.Lock()
+		since := time.Since(lastPong)
+		lastPongMu.Unlock()
+
+		if since > timeout {
+			logrus.Warn("⏱ Pong timeout reached, closing connection")
+			_ = conn.WriteControl(websocket.CloseMessage,
+				websocket.FormatCloseMessage(1008, "Pong timeout"),
+				time.Now().Add(time.Second))
+			return
+		}
+	}
+}
+
 func errorHandler(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgraderAsync.Upgrade(w, r, nil)
 	if err != nil {
@@ -188,6 +267,8 @@ func startServer() {
 		http.HandleFunc("/normal", normalCloseHandler)
 		http.HandleFunc("/ping-pong", pingPongHandler)
 		http.HandleFunc("/error", errorHandler)
+		http.HandleFunc("/ping", pingHandler)
+		http.HandleFunc("/pong", pongHandler)
 		go func() {
 			logrus.Info("Starting WebSocket test server on :8080")
 			logrus.Fatal(http.ListenAndServe(":8080", nil))
@@ -381,6 +462,101 @@ func TestPingPongConnectionAlive(t *testing.T) {
 	}
 
 	stream.Close()
+}
+
+func TestPingHandler_RespondsToClientPings(t *testing.T) {
+	go startServer()
+	time.Sleep(300 * time.Millisecond)
+
+	errC := make(chan error, 1)
+	mockErrHandler := func(err error) error {
+		errC <- err
+		return err
+	}
+
+	var mu sync.Mutex
+	pongCount := 0
+
+	ws, err := web_socket.New(
+		web_socket.WsHost("localhost:8080"),
+		web_socket.WsPath("/ping"),
+		web_socket.SchemeWS,
+		web_socket.TextMessage,
+		false)
+	assert.NoError(t, err)
+	defer ws.Close()
+
+	ws.SetErrHandler(mockErrHandler)
+
+	ws.SetPongHandler(func(appData string) error {
+		mu.Lock()
+		pongCount++
+		mu.Unlock()
+		t.Logf("✅ Received pong: %s", appData)
+		return nil
+	})
+
+	ws.SetPingHandler()
+
+	// 🎯 обов’язково читаємо з'єднання, інакше pong не обробиться
+	go func() {
+		for {
+			if _, _, err := ws.GetConnection().ReadMessage(); err != nil {
+				return
+			}
+		}
+	}()
+
+	const expectedPongs = 5
+
+	for i := 0; i < expectedPongs; i++ {
+		err := ws.WriteControl(websocket.PingMessage, []byte(fmt.Sprintf("ping-%d", i)), time.Now().Add(time.Second))
+		assert.NoError(t, err, "failed to send ping %d", i)
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	mu.Lock()
+	got := pongCount
+	mu.Unlock()
+
+	assert.Equal(t, expectedPongs, got, "❌ Expected %d pong responses from server", expectedPongs)
+	t.Log("✅ Server responded with all pongs")
+}
+
+func TestPongHandler_ServerKeepsConnectionAlive(t *testing.T) {
+	go startServer()
+	time.Sleep(300 * time.Millisecond)
+
+	errC := make(chan error, 1)
+	mockErrHandler := func(err error) error {
+		errC <- err
+		return err
+	}
+
+	ws, err := web_socket.New(
+		web_socket.WsHost("localhost:8080"),
+		web_socket.WsPath("/pong?timeout=100ms"),
+		web_socket.SchemeWS,
+		web_socket.TextMessage,
+		false)
+	assert.NoError(t, err)
+	defer ws.Close()
+
+	ws.SetErrHandler(mockErrHandler)
+
+	ws.SetPingHandler(func(appData string) error {
+		t.Logf("📡 Got ping from server: %s", appData)
+		return ws.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(time.Second))
+	})
+
+	ws.SetPongHandler() // пустий, щоб не було сторонніх дій
+
+	select {
+	case err := <-errC:
+		t.Fatalf("❌ Server closed connection unexpectedly: %v", err)
+	case <-time.After(1 * time.Second): // >10 * timeout
+		t.Log("✅ Client responded to all pings — connection remains alive")
+	}
 }
 
 func TestWebSocketWrapper_LoopStartsWithAddHandler(t *testing.T) {

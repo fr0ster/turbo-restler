@@ -65,6 +65,15 @@ func New(
 	return
 }
 
+func (ws *WebSocketWrapper) GetConnection() *websocket.Conn {
+	// Отримання з'єднання
+	conn, ok := ws.conn.Load().(*websocket.Conn)
+	if !ok {
+		return nil
+	}
+	return conn
+}
+
 func (ws *WebSocketWrapper) getConn() *websocket.Conn {
 	// Отримання з'єднання
 	conn, ok := ws.conn.Load().(*websocket.Conn)
@@ -103,7 +112,7 @@ func (ws *WebSocketWrapper) SetPingHandler(handler ...func(appData string) error
 func (ws *WebSocketWrapper) SetPongHandler(handler ...func(appData string) error) *WebSocketWrapper {
 	// Встановлення обробника для pong повідомлень
 	if len(handler) == 0 {
-		ws.getConn().SetPongHandler(func(appData string) error {
+		ws.SetPongHandler(func(appData string) error {
 			err := ws.getConn().WriteControl(websocket.PingMessage, []byte(appData), time.Now().Add(time.Second))
 			if err != nil {
 				ws.errorHandler(fmt.Errorf("error sending ping: %v", err))

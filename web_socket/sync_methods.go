@@ -158,3 +158,7 @@ func (ws *WebSocketWrapper) SetTimeOut(timeout time.Duration) {
 	ws.getConn().SetReadDeadline(time.Now().Add(timeout))
 	ws.getConn().SetWriteDeadline(time.Now().Add(timeout))
 }
+
+func (ws *WebSocketWrapper) WriteControl(messageType int, data []byte, timeOut time.Time) error {
+	return ws.getConn().WriteControl(messageType, data, timeOut)
+}
