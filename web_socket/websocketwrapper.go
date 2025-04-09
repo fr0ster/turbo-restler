@@ -19,6 +19,9 @@ type ControlWriter interface {
 	WriteControl(messageType int, data []byte, deadline time.Time) error
 }
 
+// WebSocketWrapper is a concrete implementation of the WebSocketInterface.
+// It wraps a gorilla/websocket connection and provides methods for
+// sending messages, subscribing to events, and handling control frames.
 // WebSocketWrapper provides a safe abstraction over a WebSocket connection
 // with separate read/write loops, event subscriptions, and control handlers
 type WebSocketWrapper struct {
