@@ -26,27 +26,17 @@ func (ws *WebSocketWrapper) Deserialize(body []byte) (response *simplejson.Json)
 
 // Відправка запиту
 func (ws *WebSocketWrapper) Send(request *simplejson.Json) (err error) {
-	ws.writeMutex.Lock()
-	defer ws.writeMutex.Unlock()
 	// Серіалізація запиту в JSON
 	requestBody := ws.Serialize(request)
-
-	// Відправка запиту
-	if ws.GetConn() == nil {
-		err = fmt.Errorf("connection is nil")
-		return
-	}
 	err = ws.WriteMessage(int(ws.messageType), requestBody)
 	if err != nil {
-		err = fmt.Errorf("error sending message: %v", err)
-		return
+		return err
 	}
 	return
 }
 
 // Читання відповіді
 func (ws *WebSocketWrapper) Read() (response *simplejson.Json, err error) {
-	ws.SetReadDeadline(time.Now().Add(1 * time.Second))
 	_, body, err := ws.ReadMessage()
 	if err != nil {
 		return nil, err
@@ -54,8 +44,11 @@ func (ws *WebSocketWrapper) Read() (response *simplejson.Json, err error) {
 
 	response = ws.Deserialize(body)
 
-	// ❗️НЕ перевіряємо "error" — це завдання callback'а
-	return response, err
+	return response, nil
+}
+
+func (ws *WebSocketWrapper) SendPong(appdata string) error {
+	return ws.writeControl(websocket.PongMessage, []byte(appdata), time.Now().Add(time.Second))
 }
 
 func (ws *WebSocketWrapper) Close() error {
@@ -116,17 +109,32 @@ func (ws *WebSocketWrapper) SetTimeOut(timeout time.Duration) {
 	ws.timeOut = timeout
 }
 
-func (ws *WebSocketWrapper) WriteControl(messageType int, data []byte, timeOut time.Time) error {
+func (ws *WebSocketWrapper) writeControl(messageType int, data []byte, timeOut time.Time) error {
+	ws.writeMutex.Lock()
+	defer ws.writeMutex.Unlock()
+	if ws.conn == nil {
+		return fmt.Errorf("connection is nil")
+	}
 	ws.SetWriteDeadline(time.Now().Add(time.Second))
 	return ws.conn.WriteControl(messageType, data, timeOut)
 }
 
 func (ws *WebSocketWrapper) WriteMessage(messageType int, data []byte) error {
+	ws.writeMutex.Lock()
+	defer ws.writeMutex.Unlock()
+	if ws.conn == nil {
+		return fmt.Errorf("connection is nil")
+	}
 	ws.conn.SetWriteDeadline(time.Now().Add(time.Second))
 	return ws.conn.WriteMessage(messageType, data)
 }
 
 func (ws *WebSocketWrapper) ReadMessage() (int, []byte, error) {
+	ws.readMutex.Lock()
+	defer ws.readMutex.Unlock()
+	if ws.conn == nil {
+		return 0, nil, fmt.Errorf("connection is nil")
+	}
 	ws.SetReadDeadline(time.Now().Add(time.Second))
 	return ws.conn.ReadMessage()
 }

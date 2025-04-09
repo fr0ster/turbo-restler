@@ -715,7 +715,7 @@ func TestPongHandler_ServerKeepsConnectionAlive(t *testing.T) {
 
 	ws.SetPingHandler(func(appData string) error {
 		logrus.Printf("📥 Received PING: %s", appData)
-		return ws.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(time.Second))
+		return ws.SendPong(appData)
 	})
 
 	go func() {

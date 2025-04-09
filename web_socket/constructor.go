@@ -78,7 +78,7 @@ func (ws *WebSocketWrapper) SetPingHandler(handler ...func(appData string) error
 	// Встановлення обробника для ping повідомлень
 	if len(handler) == 0 {
 		ws.conn.SetPingHandler(func(appData string) error {
-			err := ws.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(time.Second))
+			err := ws.writeControl(websocket.PongMessage, []byte(appData), time.Now().Add(time.Second))
 			if err != nil {
 				ws.errorHandler(fmt.Errorf("error sending pong: %v", err))
 			}
@@ -94,7 +94,7 @@ func (ws *WebSocketWrapper) SetPongHandler(handler ...func(appData string) error
 	// Встановлення обробника для pong повідомлень
 	if len(handler) == 0 {
 		ws.conn.SetPongHandler(func(appData string) error {
-			err := ws.WriteControl(websocket.PingMessage, []byte(appData), time.Now().Add(time.Second))
+			err := ws.writeControl(websocket.PingMessage, []byte(appData), time.Now().Add(time.Second))
 			if err != nil {
 				ws.errorHandler(fmt.Errorf("error sending ping: %v", err))
 			}
