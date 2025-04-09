@@ -40,10 +40,6 @@ func (ws *WebSocketWrapper) loop() error {
 				logrus.Info("🔚 loop exiting due to ctx.Done()")
 				return
 			default:
-				if ws.getConn() == nil {
-					time.Sleep(100 * time.Millisecond)
-					continue
-				}
 
 				response, err := ws.Read()
 

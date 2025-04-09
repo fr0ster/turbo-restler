@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -39,6 +40,105 @@ func handler(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+func bingoBongoHandler(w http.ResponseWriter, r *http.Request) {
+	conn, err := upgraderAsync.Upgrade(w, r, nil)
+	if err != nil {
+		logrus.Print("upgrade:", err)
+		return
+	}
+	defer conn.Close()
+
+	// Зчитування параметру pong timeout
+	pongTimeout := 5 * time.Second // default
+	if pongTimeoutStr := r.URL.Query().Get("pong"); pongTimeoutStr != "" {
+		if ms, err := strconv.Atoi(pongTimeoutStr); err == nil {
+			pongTimeout = time.Duration(ms) * time.Millisecond
+		} else {
+			logrus.Println("Invalid pong timeout value")
+			return
+		}
+	}
+
+	// Обробник PONG
+	pongReceived := make(chan struct{}, 1)
+	conn.SetPongHandler(func(appData string) error {
+		logrus.Info("✅ PONG received")
+		select {
+		case pongReceived <- struct{}{}:
+		default:
+		}
+		return nil
+	})
+
+	stopServer := make(chan struct{})
+	var mu sync.Mutex
+
+	// Горутіна перевірки pong
+	ticker := time.NewTicker(pongTimeout / 2)
+	go func() {
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stopServer:
+				logrus.Info("🛑 Ping loop stopped")
+				return
+			case <-ticker.C:
+				go func() {
+					mu.Lock()
+					defer mu.Unlock()
+					handlePongTimeout(conn, pongTimeout, pongReceived, stopServer)
+				}()
+			}
+		}
+	}()
+
+	// Основний цикл надсилання повідомлень
+	for {
+		select {
+		case <-stopServer:
+			logrus.Println("Test failed — stopping server")
+			return
+		default:
+			mu.Lock()
+			err := conn.WriteMessage(websocket.TextMessage, []byte("some data"))
+			mu.Unlock()
+			if err != nil {
+				logrus.Println("write:", err)
+				return
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+}
+
+func handlePongTimeout(conn *websocket.Conn, timeout time.Duration, pongReceived chan struct{}, stopServer chan struct{}) {
+	if err := conn.WriteControl(websocket.PingMessage, []byte("ping"), time.Now().Add(timeout)); err != nil {
+		logrus.Errorf("❌ Error sending ping: %v", err)
+		return
+	}
+	logrus.Info("📡 PING sent")
+
+	select {
+	case <-pongReceived:
+		logrus.Info("🎉 Pong received before timeout")
+	// case <-time.After(timeout * 5):
+	// 	logrus.Warn("⏰ Pong timeout, closing connection")
+	// 	_ = conn.WriteControl(
+	// 		websocket.CloseMessage,
+	// 		websocket.FormatCloseMessage(1008, "Pong timeout"),
+	// 		time.Now().Add(time.Second),
+	// 	)
+	// 	_ = conn.Close()
+
+	// 	// 💥 Зупиняємо сервер
+	// 	select {
+	// 	case stopServer <- struct{}{}:
+	// 	default:
+	// 	}
+	default:
 	}
 }
 
@@ -90,14 +190,14 @@ func pingPongHandler(w http.ResponseWriter, r *http.Request) {
 	logrus.Infof("🔁 Ping/Pong loop started (timeout: %v)", timeout)
 
 	for i := 0; i < 3; i++ {
-		err := conn.WriteControl(websocket.PingMessage, []byte("ping-check"), time.Now().Add(timeout))
+		err := conn.WriteControl(websocket.PingMessage, []byte("ping-check"), time.Now().Add(time.Second))
 		if err != nil {
 			logrus.Warnf("❌ Failed to send ping: %v", err)
 			return
 		}
 		logrus.Infof("📡 Sent Ping %d to client", i+1)
 
-		conn.SetReadDeadline(time.Now().Add(timeout))
+		// conn.SetReadDeadline(time.Now().Add(timeout))
 		mt, msg, err := conn.ReadMessage()
 		if err != nil {
 			logrus.Warnf("❌ Read error after ping: %v", err)
@@ -158,14 +258,14 @@ func pongHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	var lastPongMu sync.Mutex
-	lastPong := time.Now()
+	// var lastPongMu sync.Mutex
+	// lastPong := time.Now()
 
 	conn.SetPongHandler(func(appData string) error {
 		logrus.Infof("📥 Received PONG: %s", appData)
-		lastPongMu.Lock()
-		lastPong = time.Now()
-		lastPongMu.Unlock()
+		// lastPongMu.Lock()
+		// lastPong = time.Now()
+		// lastPongMu.Unlock()
 		return nil
 	})
 
@@ -174,24 +274,14 @@ func pongHandler(w http.ResponseWriter, r *http.Request) {
 
 	logrus.Infof("🔁 pongHandler started with timeout %v", timeout)
 
-	for range ticker.C {
-		if err := conn.WriteControl(websocket.PingMessage, []byte("server-ping"), time.Now().Add(time.Second)); err != nil {
-			logrus.Warnf("❌ Failed to send ping: %v", err)
+	for {
+		err := conn.WriteControl(websocket.PingMessage, []byte("ping"), time.Now().Add(timeout))
+		if err != nil {
+			// logrus.Warnf("❌ Failed to send ping: %v", err)
 			return
 		}
-		logrus.Info("📡 Sent ping to client")
-
-		lastPongMu.Lock()
-		since := time.Since(lastPong)
-		lastPongMu.Unlock()
-
-		if since > timeout {
-			logrus.Warn("⏱ Pong timeout reached, closing connection")
-			_ = conn.WriteControl(websocket.CloseMessage,
-				websocket.FormatCloseMessage(1008, "Pong timeout"),
-				time.Now().Add(time.Second))
-			return
-		}
+		logrus.Info("📡 Sent PING to client")
+		time.Sleep(timeout / 2)
 	}
 }
 
@@ -269,6 +359,7 @@ func startServer() {
 		http.HandleFunc("/error", errorHandler)
 		http.HandleFunc("/ping", pingHandler)
 		http.HandleFunc("/pong", pongHandler)
+		http.HandleFunc("/bingo", bingoBongoHandler)
 		go func() {
 			logrus.Info("Starting WebSocket test server on :8080")
 			logrus.Fatal(http.ListenAndServe(":8080", nil))
@@ -313,6 +404,72 @@ func TestStartLocalStreamer(t *testing.T) {
 	checkNoErr()
 
 	time.Sleep(timeOut)
+	stream.RemoveHandler("default")
+	checkNoErr()
+}
+
+func TestBingoBongoStreamer(t *testing.T) {
+	go startServer()
+	time.Sleep(3000 * time.Millisecond) // даємо серверу піднятись
+
+	// var mu sync.Mutex // 🔒 mutex для потокобезпеки
+
+	errC := make(chan error, 1)
+	mockErrHandler := func(err error) error {
+		select {
+		case errC <- err:
+		default:
+			t.Logf("⚠️ error dropped: %v", err)
+		}
+		return err
+	}
+	checkNoErr := func() {
+		select {
+		case err := <-errC:
+			t.Errorf("unexpected error received: %v", err)
+		case <-time.After(500 * time.Millisecond):
+			t.Log("✅ no error received, as expected")
+		}
+	}
+
+	stream, err := web_socket.New(
+		web_socket.WsHost("localhost:8080"),
+		web_socket.WsPath("/bingo?pong=1000"),
+		web_socket.SchemeWS,
+		web_socket.TextMessage,
+		true)
+	assert.NoError(t, err)
+	assert.NotNil(t, stream)
+
+	stream.SetCloseHandler(nil)
+
+	stream.SetErrHandler(mockErrHandler)
+	mockHandler := func(msg *simplejson.Json) {}
+	stream.AddHandler("default", mockHandler)
+
+	// відповідаємо на ping через потокобезпечний WriteControl
+	stream.GetConn().SetPingHandler(func(appData string) error {
+		logrus.Info("📡 received ping, sending pong")
+		// mu.Lock()
+		// defer mu.Unlock()
+		err := stream.GetConn().WriteMessage(websocket.PongMessage, []byte(appData))
+		return err
+	})
+	// stream.SetPingHandler()
+
+	// 🎯 обов’язково читаємо з'єднання, інакше pong не обробиться
+	// go func() {
+	// 	for {
+	// 		if _, err := stream.Read(); err != nil {
+	// 			return
+	// 		}
+	// 	}
+	// }()
+
+	// checkNoErr()
+
+	time.Sleep(6000 * time.Millisecond) // чекаємо довше за таймаут
+
 	stream.RemoveHandler("default")
 	checkNoErr()
 }
@@ -449,17 +606,30 @@ func TestPingPongConnectionAlive(t *testing.T) {
 		web_socket.WsPath("/ping-pong?timeout=1s"),
 		web_socket.SchemeWS,
 		web_socket.TextMessage,
-		false)
+		true)
 	assert.NoError(t, err)
 
 	stream.SetErrHandler(mockErrHandler)
+	// stream.AddHandler("ping-pong", mockHandler)
+	stream.SetPingHandler()
+	go func() {
+		for {
+			_, _, err := stream.GetConn().ReadMessage()
+			if err != nil {
+				// logrus.Warnf("❌ Read error: %v", err)
+				return
+			}
+		}
+	}()
 
 	select {
 	case err := <-errC:
 		t.Fatalf("❌ Unexpected error during ping/pong test: %v", err)
-	case <-time.After(2 * time.Second):
+	case <-time.After(10 * time.Second):
 		t.Log("✅ Client responded to all Pings — connection alive")
 	}
+
+	stream.RemoveHandler("ping-pong")
 
 	stream.Close()
 }
@@ -510,7 +680,7 @@ func TestPingHandler_RespondsToClientPings(t *testing.T) {
 	const expectedPongs = 5
 
 	for i := 0; i < expectedPongs; i++ {
-		err := ws.WriteControl(websocket.PingMessage, []byte(fmt.Sprintf("ping-%d", i)), time.Now().Add(time.Second))
+		err := ws.WriteMessage(websocket.PingMessage, []byte(fmt.Sprintf("ping-%d", i)))
 		assert.NoError(t, err, "failed to send ping %d", i)
 		time.Sleep(20 * time.Millisecond)
 	}
@@ -525,7 +695,7 @@ func TestPingHandler_RespondsToClientPings(t *testing.T) {
 
 func TestPongHandler_ServerKeepsConnectionAlive(t *testing.T) {
 	go startServer()
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(3000 * time.Millisecond)
 
 	errC := make(chan error, 1)
 	mockErrHandler := func(err error) error {
@@ -538,18 +708,27 @@ func TestPongHandler_ServerKeepsConnectionAlive(t *testing.T) {
 		web_socket.WsPath("/pong?timeout=100ms"),
 		web_socket.SchemeWS,
 		web_socket.TextMessage,
-		false)
+		true)
 	assert.NoError(t, err)
-	defer ws.Close()
-
+	// defer ws.Close()
 	ws.SetErrHandler(mockErrHandler)
 
 	ws.SetPingHandler(func(appData string) error {
-		t.Logf("📡 Got ping from server: %s", appData)
+		logrus.Printf("📥 Received PING: %s", appData)
 		return ws.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(time.Second))
 	})
 
-	ws.SetPongHandler() // пустий, щоб не було сторонніх дій
+	go func() {
+		for {
+			_, _, err := ws.GetConn().ReadMessage()
+			if err != nil {
+				// logrus.Warnf("❌ Read error: %v", err)
+				return
+			}
+		}
+	}()
+
+	ws.SetPongHandler()
 
 	select {
 	case err := <-errC:

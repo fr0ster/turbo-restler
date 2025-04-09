@@ -3,7 +3,6 @@ package web_socket
 import (
 	"context"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/bitly/go-simplejson"
@@ -58,7 +57,7 @@ type (
 		path               WsPath
 		scheme             WsScheme
 		silent             bool
-		conn               atomic.Value
+		conn               *websocket.Conn
 		messageType        MessageType
 		ctx                context.Context
 		cancel             context.CancelFunc

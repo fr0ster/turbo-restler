@@ -7,7 +7,6 @@ import (
 
 	"github.com/bitly/go-simplejson"
 	"github.com/gorilla/websocket"
-	"github.com/sirupsen/logrus"
 )
 
 // Серіалізація запиту в JSON
@@ -34,11 +33,11 @@ func (ws *WebSocketWrapper) Send(request *simplejson.Json) (err error) {
 	requestBody := ws.Serialize(request)
 
 	// Відправка запиту
-	if ws.getConn() == nil {
+	if ws.GetConn() == nil {
 		err = fmt.Errorf("connection is nil")
 		return
 	}
-	err = ws.getConn().WriteMessage(int(ws.messageType), requestBody)
+	err = ws.WriteMessage(int(ws.messageType), requestBody)
 	if err != nil {
 		err = fmt.Errorf("error sending message: %v", err)
 		return
@@ -74,20 +73,8 @@ func (ws *WebSocketWrapper) isFatalCloseError(err error) bool {
 
 // Читання відповіді
 func (ws *WebSocketWrapper) Read() (response *simplejson.Json, err error) {
-	ws.readMutex.Lock()
-	defer ws.readMutex.Unlock()
-	if ws.socketClosed {
-		return nil, ws.errorHandler(fmt.Errorf("socket is closed"))
-	}
-
-	dlErr := ws.getConn().SetReadDeadline(time.Now().Add(1 * time.Second))
-	if dlErr != nil {
-		return nil, ws.errorHandler(fmt.Errorf("error setting read deadline: %v", dlErr))
-	}
-
-	logrus.Debug("🔁 Read: before ReadMessage()")
-	_, body, err := ws.getConn().ReadMessage()
-	logrus.Debug("✅ Read: after ReadMessage()")
+	ws.SetReadDeadline(time.Now().Add(1 * time.Second))
+	_, body, err := ws.ReadMessage()
 	if err != nil {
 		return nil, err
 	}
@@ -95,13 +82,13 @@ func (ws *WebSocketWrapper) Read() (response *simplejson.Json, err error) {
 	response = ws.Deserialize(body)
 
 	// ❗️НЕ перевіряємо "error" — це завдання callback'а
-	return response, nil
+	return response, err
 }
 
 func (ws *WebSocketWrapper) Close() error {
 	ws.cancel()
 
-	conn := ws.getConn()
+	conn := ws.GetConn()
 	if conn != nil {
 		_ = conn.WriteControl(websocket.CloseMessage,
 			websocket.FormatCloseMessage(websocket.CloseNormalClosure, "client closing"),
@@ -109,7 +96,6 @@ func (ws *WebSocketWrapper) Close() error {
 
 		_ = conn.SetReadDeadline(time.Now().Add(1 * time.Second))
 		_ = conn.Close()
-		ws.setConn(nil)
 
 		select {
 		case <-ws.doneC:
@@ -155,10 +141,19 @@ func (ws *WebSocketWrapper) GetLoopStartedC() chan struct{} {
 
 func (ws *WebSocketWrapper) SetTimeOut(timeout time.Duration) {
 	ws.timeOut = timeout
-	ws.getConn().SetReadDeadline(time.Now().Add(timeout))
-	ws.getConn().SetWriteDeadline(time.Now().Add(timeout))
 }
 
 func (ws *WebSocketWrapper) WriteControl(messageType int, data []byte, timeOut time.Time) error {
-	return ws.getConn().WriteControl(messageType, data, timeOut)
+	ws.SetWriteDeadline(time.Now().Add(time.Second))
+	return ws.conn.WriteControl(messageType, data, timeOut)
+}
+
+func (ws *WebSocketWrapper) WriteMessage(messageType int, data []byte) error {
+	ws.conn.SetWriteDeadline(time.Now().Add(time.Second))
+	return ws.conn.WriteMessage(messageType, data)
+}
+
+func (ws *WebSocketWrapper) ReadMessage() (int, []byte, error) {
+	ws.SetReadDeadline(time.Now().Add(time.Second))
+	return ws.conn.ReadMessage()
 }

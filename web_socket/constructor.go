@@ -49,6 +49,7 @@ func New(
 		path:               path,
 		silent:             silent,
 		messageType:        messageType,
+		conn:               conn,
 		callBackMap:        make(WsHandlerMap, 0),
 		mutex:              &sync.Mutex{},
 		readMutex:          &sync.Mutex{},
@@ -60,23 +61,13 @@ func New(
 		errorC:             make(chan error, 1),
 		timeOut:            timeOut[0],
 	}
-	ws.conn.Store(conn)
 	ws.ctx, ws.cancel = context.WithCancel(context.Background())
 	return
 }
 
-func (ws *WebSocketWrapper) getConn() *websocket.Conn {
+func (ws *WebSocketWrapper) GetConn() *websocket.Conn {
 	// Отримання з'єднання
-	conn, ok := ws.conn.Load().(*websocket.Conn)
-	if !ok {
-		return nil
-	}
-	return conn
-}
-
-func (ws *WebSocketWrapper) setConn(conn *websocket.Conn) {
-	// Встановлення з'єднання
-	ws.conn.Store(conn)
+	return ws.conn
 }
 
 func (ws *WebSocketWrapper) SetSilentMode(silent bool) *WebSocketWrapper {
@@ -87,15 +78,15 @@ func (ws *WebSocketWrapper) SetSilentMode(silent bool) *WebSocketWrapper {
 func (ws *WebSocketWrapper) SetPingHandler(handler ...func(appData string) error) *WebSocketWrapper {
 	// Встановлення обробника для ping повідомлень
 	if len(handler) == 0 {
-		ws.getConn().SetPingHandler(func(appData string) error {
-			err := ws.getConn().WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(time.Second))
+		ws.conn.SetPingHandler(func(appData string) error {
+			err := ws.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(time.Second))
 			if err != nil {
 				ws.errorHandler(fmt.Errorf("error sending pong: %v", err))
 			}
 			return nil
 		})
 	} else {
-		ws.getConn().SetPingHandler(handler[0])
+		ws.conn.SetPingHandler(handler[0])
 	}
 	return ws
 }
@@ -103,15 +94,15 @@ func (ws *WebSocketWrapper) SetPingHandler(handler ...func(appData string) error
 func (ws *WebSocketWrapper) SetPongHandler(handler ...func(appData string) error) *WebSocketWrapper {
 	// Встановлення обробника для pong повідомлень
 	if len(handler) == 0 {
-		ws.SetPongHandler(func(appData string) error {
-			err := ws.getConn().WriteControl(websocket.PingMessage, []byte(appData), time.Now().Add(time.Second))
+		ws.conn.SetPongHandler(func(appData string) error {
+			err := ws.WriteControl(websocket.PingMessage, []byte(appData), time.Now().Add(time.Second))
 			if err != nil {
 				ws.errorHandler(fmt.Errorf("error sending ping: %v", err))
 			}
 			return nil
 		})
 	} else {
-		ws.getConn().SetPongHandler(handler[0])
+		ws.conn.SetPongHandler(handler[0])
 	}
 	return ws
 }
@@ -139,7 +130,7 @@ func (ws *WebSocketWrapper) SetMessageType(messageType MessageType) *WebSocketWr
 func (ws *WebSocketWrapper) SetCloseHandler(handler ...func(code int, text string) error) *WebSocketWrapper {
 	// Встановлення обробника для закриття з'єднання
 	if len(handler) == 0 {
-		ws.getConn().SetCloseHandler(func(code int, text string) (err error) {
+		ws.conn.SetCloseHandler(func(code int, text string) (err error) {
 			fmt.Printf("WebSocket closed with code %d and message: %s\n", code, text)
 			ws.socketClosed = true
 			if ws.loopStarted {
@@ -151,26 +142,24 @@ func (ws *WebSocketWrapper) SetCloseHandler(handler ...func(code int, text strin
 			if err != nil {
 				return
 			}
-			ws.setConn(conn)
+			ws.conn = conn
 			return nil
 		})
 	} else {
-		ws.getConn().SetCloseHandler(handler[0])
+		ws.conn.SetCloseHandler(handler[0])
 	}
 	return ws
 }
 
 func (ws *WebSocketWrapper) SetReadLimit(limit int64) *WebSocketWrapper {
-	ws.getConn().SetReadLimit(limit)
+	ws.conn.SetReadLimit(limit)
 	return ws
 }
 
-func (ws *WebSocketWrapper) SetReadDeadline(t time.Time) *WebSocketWrapper {
-	ws.getConn().SetReadDeadline(t)
-	return ws
+func (ws *WebSocketWrapper) SetReadDeadline(t time.Time) error {
+	return ws.conn.SetReadDeadline(t)
 }
 
-func (ws *WebSocketWrapper) SetWriteDeadline(t time.Time) *WebSocketWrapper {
-	ws.getConn().SetWriteDeadline(t)
-	return ws
+func (ws *WebSocketWrapper) SetWriteDeadline(t time.Time) error {
+	return ws.conn.SetWriteDeadline(t)
 }
