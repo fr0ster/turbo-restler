@@ -15,49 +15,6 @@ import (
 	"github.com/fr0ster/turbo-restler/web_socket"
 )
 
-func startTestServer(handler http.Handler) (url string, cleanup func()) {
-	done := make(chan struct{})
-
-	wrappedHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		r = r.WithContext(context.WithValue(r.Context(), "done", done))
-		handler.ServeHTTP(w, r)
-	})
-
-	// ОС сама виділить порт
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		panic(err)
-	}
-	addr := ln.Addr().(*net.TCPAddr)
-	port := addr.Port
-
-	srv := &http.Server{Handler: wrappedHandler}
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
-			fmt.Printf("[server] serve error: %v\n", err)
-		}
-	}()
-
-	url = fmt.Sprintf("ws://127.0.0.1:%d", port)
-	cleanup = func() {
-		close(done)
-
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-		_ = srv.Shutdown(ctx)
-		wg.Wait()
-	}
-
-	return url, cleanup
-}
-
-// StartWebSocketTestServer запускає WebSocket-сумісний HTTP-сервер,
-// слухає на вільному порту та повертає URL і cleanup-функцію.
-//
-// handler — це http.HandlerFunc з websocket.Upgrader всередині.
 func StartWebSocketTestServer(handler http.Handler) (url string, cleanup func()) {
 	done := make(chan struct{})
 
@@ -66,25 +23,18 @@ func StartWebSocketTestServer(handler http.Handler) (url string, cleanup func())
 		handler.ServeHTTP(w, r)
 	})
 
-	ln, err := net.Listen("tcp", "127.0.0.1:0") // виділяє вільний порт
-	if err != nil {
-		panic(fmt.Sprintf("failed to listen: %v", err))
-	}
-	addr := ln.Addr().(*net.TCPAddr)
-	port := addr.Port
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(nil, err)
+	port := ln.Addr().(*net.TCPAddr).Port
 
 	srv := &http.Server{Handler: wrappedHandler}
-
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
-			fmt.Printf("[server] serve error: %v\n", err)
-		}
+		_ = srv.Serve(ln)
 	}()
 
-	// Перевіряємо, що сервер реально слухає перед поверненням
 	target := fmt.Sprintf("127.0.0.1:%d", port)
 	for i := 0; i < 10; i++ {
 		conn, err := net.DialTimeout("tcp", target, 100*time.Millisecond)
@@ -98,7 +48,6 @@ func StartWebSocketTestServer(handler http.Handler) (url string, cleanup func())
 	url = fmt.Sprintf("ws://127.0.0.1:%d", port)
 	cleanup = func() {
 		close(done)
-
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 		_ = srv.Shutdown(ctx)
@@ -107,8 +56,6 @@ func StartWebSocketTestServer(handler http.Handler) (url string, cleanup func())
 
 	return url, cleanup
 }
-
-// (після цього буде додано всі тести — вставимо окремо)
 
 func TestReadWrite(t *testing.T) {
 	u, cleanup := StartWebSocketTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -135,25 +82,24 @@ func TestReadWrite(t *testing.T) {
 	sw := web_socket.NewWebSocketWrapper(conn)
 	sw.Open()
 
-	msgReceived := make(chan struct{})
+	done := make(chan struct{})
 	errCh := make(chan error, 1)
-
 	sw.Subscribe(func(evt web_socket.MessageEvent) {
 		if evt.Error != nil {
 			errCh <- evt.Error
 			return
 		}
 		if string(evt.Body) != "hello" {
-			errCh <- fmt.Errorf("unexpected message: %s", evt.Body)
+			errCh <- fmt.Errorf("expected 'hello', got '%s'", string(evt.Body))
 			return
 		}
-		close(msgReceived)
+		close(done)
 	})
 
 	require.NoError(t, sw.Send([]byte("hello")))
 
 	select {
-	case <-msgReceived:
+	case <-done:
 	case err := <-errCh:
 		t.Fatal(err)
 	case <-time.After(2 * time.Second):
@@ -165,7 +111,6 @@ func TestReadWrite(t *testing.T) {
 }
 
 func TestPingPongTimeoutClose(t *testing.T) {
-	var pongReceived bool
 	u, cleanup := StartWebSocketTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, _ := (&websocket.Upgrader{}).Upgrade(w, r, nil)
 		ticker := time.NewTicker(100 * time.Millisecond)
@@ -180,15 +125,24 @@ func TestPingPongTimeoutClose(t *testing.T) {
 	require.NoError(t, err)
 
 	sw := web_socket.NewWebSocketWrapper(conn)
+	pongReceived := make(chan struct{})
 	sw.SetPingHandler(func(s string, w web_socket.ControlWriter) error {
-		pongReceived = true
-		return w.WriteControl(websocket.PongMessage, []byte(s), time.Now().Add(time.Second))
+		err := w.WriteControl(websocket.PongMessage, []byte(s), time.Now().Add(time.Second))
+		if err == nil {
+			close(pongReceived)
+		}
+		return err
 	})
 	sw.Open()
-	time.Sleep(300 * time.Millisecond)
+
+	select {
+	case <-pongReceived:
+	case <-time.After(1 * time.Second):
+		t.Fatal("pong not received")
+	}
+
 	sw.Close()
 	<-sw.Done()
-	require.True(t, pongReceived)
 }
 
 func TestConcurrentConsumers(t *testing.T) {
@@ -210,10 +164,10 @@ func TestConcurrentConsumers(t *testing.T) {
 	sw := web_socket.NewWebSocketWrapper(conn)
 	sw.Open()
 
-	var wg sync.WaitGroup
 	n := 5
+	var wg sync.WaitGroup
+	wg.Add(n)
 	for i := 0; i < n; i++ {
-		wg.Add(1)
 		sw.Subscribe(func(evt web_socket.MessageEvent) {
 			if evt.Error == nil && string(evt.Body) == "hello" {
 				wg.Done()
@@ -221,17 +175,16 @@ func TestConcurrentConsumers(t *testing.T) {
 		})
 	}
 
-	err = sw.Send([]byte("hello"))
-	require.NoError(t, err)
+	require.NoError(t, sw.Send([]byte("hello")))
 
-	c := make(chan struct{})
+	done := make(chan struct{})
 	go func() {
 		wg.Wait()
-		close(c)
+		close(done)
 	}()
 
 	select {
-	case <-c:
+	case <-done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("not all consumers received message")
 	}
@@ -262,7 +215,9 @@ func TestPingPongWithTimeoutEnforcedByServer(t *testing.T) {
 		return w.WriteControl(websocket.PongMessage, []byte(s), time.Now().Add(100*time.Millisecond))
 	})
 	sw.Open()
+
 	time.Sleep(500 * time.Millisecond)
+
 	sw.Close()
 	<-sw.Done()
 }
@@ -286,8 +241,8 @@ func TestManyConcurrentConsumers(t *testing.T) {
 	sw := web_socket.NewWebSocketWrapper(conn)
 	sw.Open()
 
-	var wg sync.WaitGroup
 	n := 100
+	var wg sync.WaitGroup
 	wg.Add(n)
 	for i := 0; i < n; i++ {
 		sw.Subscribe(func(evt web_socket.MessageEvent) {
@@ -297,8 +252,7 @@ func TestManyConcurrentConsumers(t *testing.T) {
 		})
 	}
 
-	err = sw.Send([]byte("stress"))
-	require.NoError(t, err)
+	require.NoError(t, sw.Send([]byte("stress")))
 
 	done := make(chan struct{})
 	go func() {
