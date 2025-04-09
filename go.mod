@@ -10,8 +10,6 @@ require (
 	github.com/stretchr/testify v1.9.0
 )
 
-require golang.org/x/sys v0.32.0 // indirect
-
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/fr0ster/turbo-signer v0.1.8
