@@ -1,6 +1,7 @@
 package web_socket_test
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/http"
@@ -14,17 +15,30 @@ import (
 	"github.com/fr0ster/turbo-restler/web_socket"
 )
 
+type key string
+
 func startTestServer(handler http.Handler) (url string, cleanup func()) {
+	done := make(chan struct{})
+
+	var connCount int32
+	var closedCount int32
+	wrappedHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r = r.WithContext(context.WithValue(r.Context(), key("done"), done))
+		handler.ServeHTTP(w, r)
+	})
+
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		panic(err)
 	}
 	port := ln.Addr().(*net.TCPAddr).Port
-	srv := &http.Server{Handler: handler}
+	srv := &http.Server{Handler: wrappedHandler}
 	go srv.Serve(ln)
 
 	return fmt.Sprintf("ws://127.0.0.1:%d", port), func() {
+		close(done)
 		_ = srv.Close()
+		fmt.Printf("[server] Final stats: opened=%d closed=%d\n", connCount, closedCount)
 	}
 }
 
