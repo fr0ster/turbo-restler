@@ -15,42 +15,116 @@ import (
 	"github.com/fr0ster/turbo-restler/web_socket"
 )
 
-type key string
-
 func startTestServer(handler http.Handler) (url string, cleanup func()) {
 	done := make(chan struct{})
 
-	var connCount int32
-	var closedCount int32
 	wrappedHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		r = r.WithContext(context.WithValue(r.Context(), key("done"), done))
+		r = r.WithContext(context.WithValue(r.Context(), "done", done))
 		handler.ServeHTTP(w, r)
 	})
 
+	// ОС сама виділить порт
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		panic(err)
 	}
-	port := ln.Addr().(*net.TCPAddr).Port
-	srv := &http.Server{Handler: wrappedHandler}
-	go srv.Serve(ln)
+	addr := ln.Addr().(*net.TCPAddr)
+	port := addr.Port
 
-	return fmt.Sprintf("ws://127.0.0.1:%d", port), func() {
+	srv := &http.Server{Handler: wrappedHandler}
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
+			fmt.Printf("[server] serve error: %v\n", err)
+		}
+	}()
+
+	url = fmt.Sprintf("ws://127.0.0.1:%d", port)
+	cleanup = func() {
 		close(done)
-		_ = srv.Close()
-		fmt.Printf("[server] Final stats: opened=%d closed=%d\n", connCount, closedCount)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(ctx)
+		wg.Wait()
 	}
+
+	return url, cleanup
 }
 
+// StartWebSocketTestServer запускає WebSocket-сумісний HTTP-сервер,
+// слухає на вільному порту та повертає URL і cleanup-функцію.
+//
+// handler — це http.HandlerFunc з websocket.Upgrader всередині.
+func StartWebSocketTestServer(handler http.Handler) (url string, cleanup func()) {
+	done := make(chan struct{})
+
+	wrappedHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r = r.WithContext(context.WithValue(r.Context(), "done", done))
+		handler.ServeHTTP(w, r)
+	})
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0") // виділяє вільний порт
+	if err != nil {
+		panic(fmt.Sprintf("failed to listen: %v", err))
+	}
+	addr := ln.Addr().(*net.TCPAddr)
+	port := addr.Port
+
+	srv := &http.Server{Handler: wrappedHandler}
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
+			fmt.Printf("[server] serve error: %v\n", err)
+		}
+	}()
+
+	// Перевіряємо, що сервер реально слухає перед поверненням
+	target := fmt.Sprintf("127.0.0.1:%d", port)
+	for i := 0; i < 10; i++ {
+		conn, err := net.DialTimeout("tcp", target, 100*time.Millisecond)
+		if err == nil {
+			_ = conn.Close()
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	url = fmt.Sprintf("ws://127.0.0.1:%d", port)
+	cleanup = func() {
+		close(done)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(ctx)
+		wg.Wait()
+	}
+
+	return url, cleanup
+}
+
+// (після цього буде додано всі тести — вставимо окремо)
+
 func TestReadWrite(t *testing.T) {
-	u, cleanup := startTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	u, cleanup := StartWebSocketTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, _ := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+		done := r.Context().Done()
 		for {
-			type_, msg, err := conn.ReadMessage()
-			if err != nil {
+			select {
+			case <-done:
 				return
+			default:
+				type_, msg, err := conn.ReadMessage()
+				if err != nil {
+					return
+				}
+				_ = conn.WriteMessage(type_, msg)
 			}
-			_ = conn.WriteMessage(type_, msg) // echo
 		}
 	}))
 	defer cleanup()
@@ -61,18 +135,27 @@ func TestReadWrite(t *testing.T) {
 	sw := web_socket.NewWebSocketWrapper(conn)
 	sw.Open()
 
-	done := make(chan struct{})
+	msgReceived := make(chan struct{})
+	errCh := make(chan error, 1)
+
 	sw.Subscribe(func(evt web_socket.MessageEvent) {
-		require.NoError(t, evt.Error)
-		require.Equal(t, "hello", string(evt.Body))
-		close(done)
+		if evt.Error != nil {
+			errCh <- evt.Error
+			return
+		}
+		if string(evt.Body) != "hello" {
+			errCh <- fmt.Errorf("unexpected message: %s", evt.Body)
+			return
+		}
+		close(msgReceived)
 	})
 
-	err = sw.Send([]byte("hello"))
-	require.NoError(t, err)
+	require.NoError(t, sw.Send([]byte("hello")))
 
 	select {
-	case <-done:
+	case <-msgReceived:
+	case err := <-errCh:
+		t.Fatal(err)
 	case <-time.After(2 * time.Second):
 		t.Fatal("did not receive message")
 	}
@@ -83,7 +166,7 @@ func TestReadWrite(t *testing.T) {
 
 func TestPingPongTimeoutClose(t *testing.T) {
 	var pongReceived bool
-	u, cleanup := startTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	u, cleanup := StartWebSocketTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, _ := (&websocket.Upgrader{}).Upgrade(w, r, nil)
 		ticker := time.NewTicker(100 * time.Millisecond)
 		defer ticker.Stop()
@@ -109,14 +192,14 @@ func TestPingPongTimeoutClose(t *testing.T) {
 }
 
 func TestConcurrentConsumers(t *testing.T) {
-	u, cleanup := startTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	u, cleanup := StartWebSocketTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, _ := (&websocket.Upgrader{}).Upgrade(w, r, nil)
 		for {
 			type_, msg, err := conn.ReadMessage()
 			if err != nil {
 				return
 			}
-			_ = conn.WriteMessage(type_, msg) // echo
+			_ = conn.WriteMessage(type_, msg)
 		}
 	}))
 	defer cleanup()
@@ -128,7 +211,7 @@ func TestConcurrentConsumers(t *testing.T) {
 	sw.Open()
 
 	var wg sync.WaitGroup
-	n := 5 // 5 concurrent consumers
+	n := 5
 	for i := 0; i < n; i++ {
 		wg.Add(1)
 		sw.Subscribe(func(evt web_socket.MessageEvent) {
@@ -158,7 +241,7 @@ func TestConcurrentConsumers(t *testing.T) {
 }
 
 func TestPingPongWithTimeoutEnforcedByServer(t *testing.T) {
-	u, cleanup := startTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	u, cleanup := StartWebSocketTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, _ := (&websocket.Upgrader{}).Upgrade(w, r, nil)
 		ticker := time.NewTicker(50 * time.Millisecond)
 		defer ticker.Stop()
@@ -185,14 +268,14 @@ func TestPingPongWithTimeoutEnforcedByServer(t *testing.T) {
 }
 
 func TestManyConcurrentConsumers(t *testing.T) {
-	u, cleanup := startTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	u, cleanup := StartWebSocketTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, _ := (&websocket.Upgrader{}).Upgrade(w, r, nil)
 		for {
 			type_, msg, err := conn.ReadMessage()
 			if err != nil {
 				return
 			}
-			_ = conn.WriteMessage(type_, msg) // echo
+			_ = conn.WriteMessage(type_, msg)
 		}
 	}))
 	defer cleanup()
@@ -234,12 +317,12 @@ func TestManyConcurrentConsumers(t *testing.T) {
 }
 
 func TestNoPongServerClosesConnection(t *testing.T) {
-	u, cleanup := startTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	u, cleanup := StartWebSocketTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, _ := (&websocket.Upgrader{}).Upgrade(w, r, nil)
 		time.Sleep(100 * time.Millisecond)
 		_ = conn.WriteControl(websocket.PingMessage, []byte("ping"), time.Now().Add(time.Second))
 		time.Sleep(200 * time.Millisecond)
-		_ = conn.Close() // server закриває якщо не отримав pong
+		_ = conn.Close()
 	}))
 	defer cleanup()
 
