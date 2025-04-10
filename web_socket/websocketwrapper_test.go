@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/fr0ster/turbo-restler/web_socket"
@@ -301,4 +303,41 @@ func TestNoPongServerClosesConnection(t *testing.T) {
 
 	sw.Close()
 	<-sw.Done()
+}
+
+func TestWebSocketWrapper_GetReaderWriter(t *testing.T) {
+	// Start mock server
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := websocket.Upgrade(w, r, nil, 1024, 1024)
+		assert.NoError(t, err)
+		defer conn.Close()
+
+		mt, msg, err := conn.ReadMessage()
+		assert.NoError(t, err)
+		assert.Equal(t, websocket.TextMessage, mt)
+		assert.Equal(t, "test-payload", string(msg))
+
+		err = conn.WriteMessage(websocket.TextMessage, []byte("response-ok"))
+		assert.NoError(t, err)
+	}))
+	defer s.Close()
+
+	// Prepare client connection
+	wsURL := "ws" + s.URL[4:] // replace http -> ws
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	assert.NoError(t, err)
+
+	wrapper := web_socket.NewWebSocketWrapper(conn)
+
+	reader := wrapper.GetReader()
+	writer := wrapper.GetWriter()
+
+	err = writer.WriteMessage(websocket.TextMessage, []byte("test-payload"))
+	assert.NoError(t, err)
+
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	mt, msg, err := reader.ReadMessage()
+	assert.NoError(t, err)
+	assert.Equal(t, websocket.TextMessage, mt)
+	assert.Equal(t, "response-ok", string(msg))
 }

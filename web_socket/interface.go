@@ -32,4 +32,11 @@ type WebSocketInterface interface {
 
 	// SetCloseHandler registers a callback to be invoked when a Close frame is received.
 	SetCloseHandler(f func(int, string, ControlWriter) error)
+
+	// GetReader returns the underlying Reader interface for receiving messages.
+	// It can be used for low-level operations if needed.
+	GetReader() WebApiReader
+	// GetWriter returns the underlying Writer interface for sending messages.
+	// It can be used for low-level operations if needed.
+	GetWriter() WebApiWriter
 }

@@ -19,6 +19,16 @@ type ControlWriter interface {
 	WriteControl(messageType int, data []byte, deadline time.Time) error
 }
 
+// WebApiWriter are interfaces for writing and reading messages
+type WebApiWriter interface {
+	WriteMessage(messageType int, data []byte) error
+}
+
+// WebApiReader is an interface for reading messages from a WebSocket
+type WebApiReader interface {
+	ReadMessage() (messageType int, data []byte, err error)
+}
+
 // WebSocketWrapper is a concrete implementation of the WebSocketInterface.
 // It wraps a gorilla/websocket connection and provides methods for
 // sending messages, subscribing to events, and handling control frames.
@@ -131,6 +141,16 @@ func (s *WebSocketWrapper) SetPongHandler(f func(string, ControlWriter) error) {
 // SetCloseHandler sets a handler for Close frames
 func (s *WebSocketWrapper) SetCloseHandler(f func(int, string, ControlWriter) error) {
 	s.closeHandler = f
+}
+
+// GetReader returns the underlying WebApiReader
+func (s *WebSocketWrapper) GetReader() WebApiReader {
+	return s.conn
+}
+
+// GetWriter returns the underlying WebApiWriter
+func (s *WebSocketWrapper) GetWriter() WebApiWriter {
+	return s.conn
 }
 
 // Internal read loop
