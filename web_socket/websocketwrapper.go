@@ -68,7 +68,7 @@ type WebSocketWrapper struct {
 	stopOnce      sync.Once
 	doneChan      chan struct{}
 
-	logger func(LogRecord) error
+	logger func(LogRecord)
 }
 
 // NewWebSocketWrapper creates a new wrapper around a websocket connection
@@ -166,7 +166,7 @@ func (s *WebSocketWrapper) SetCloseHandler(f func(int, string, ControlWriter) er
 }
 
 // SetMessageLogger sets a logger function for received messages
-func (s *WebSocketWrapper) SetMessageLogger(f func(LogRecord) error) {
+func (s *WebSocketWrapper) SetMessageLogger(f func(LogRecord)) {
 	s.subMu.Lock()
 	defer s.subMu.Unlock()
 	s.logger = f

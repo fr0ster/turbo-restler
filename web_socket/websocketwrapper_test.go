@@ -366,9 +366,8 @@ func TestMessageLoggerCalled(t *testing.T) {
 
 	logged := make(chan web_socket.LogRecord, 1)
 
-	sw.SetMessageLogger(func(evt web_socket.LogRecord) error {
+	sw.SetMessageLogger(func(evt web_socket.LogRecord) {
 		logged <- evt
-		return nil
 	})
 
 	require.NoError(t, sw.Send([]byte("log-me")))

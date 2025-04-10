@@ -42,5 +42,5 @@ type WebSocketInterface interface {
 
 	// SetMessageLogger allows injecting a logger function for received messages.
 	// The function will be called for every received MessageEvent.
-	SetMessageLogger(f func(LogRecord) error)
+	SetMessageLogger(f func(LogRecord))
 }
