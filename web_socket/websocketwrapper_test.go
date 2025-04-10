@@ -18,10 +18,13 @@ import (
 )
 
 func StartWebSocketTestServer(handler http.Handler) (url string, cleanup func()) {
+	type contextKey string
+	const doneKey contextKey = "done"
+
 	done := make(chan struct{})
 
 	wrappedHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		r = r.WithContext(context.WithValue(r.Context(), "done", done))
+		r = r.WithContext(context.WithValue(r.Context(), doneKey, done))
 		handler.ServeHTTP(w, r)
 	})
 
