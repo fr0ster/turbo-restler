@@ -344,3 +344,43 @@ func TestWebSocketWrapper_GetReaderWriter(t *testing.T) {
 	assert.Equal(t, websocket.TextMessage, mt)
 	assert.Equal(t, "response-ok", string(msg))
 }
+
+func TestMessageLoggerCalled(t *testing.T) {
+	u, cleanup := StartWebSocketTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, _ := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+		for {
+			type_, msg, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			_ = conn.WriteMessage(type_, msg)
+		}
+	}))
+	defer cleanup()
+
+	conn, _, err := websocket.DefaultDialer.Dial(u, nil)
+	require.NoError(t, err)
+
+	sw := web_socket.NewWebSocketWrapper(conn)
+	sw.Open()
+
+	logged := make(chan web_socket.LogRecord, 1)
+
+	sw.SetMessageLogger(func(evt web_socket.LogRecord) error {
+		logged <- evt
+		return nil
+	})
+
+	require.NoError(t, sw.Send([]byte("log-me")))
+
+	select {
+	case evt := <-logged:
+		assert.Nil(t, evt.Err)
+		assert.Equal(t, "log-me", string(evt.Body))
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected message logger to be called")
+	}
+
+	sw.Close()
+	<-sw.Done()
+}

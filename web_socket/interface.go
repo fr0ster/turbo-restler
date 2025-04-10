@@ -39,4 +39,8 @@ type WebSocketInterface interface {
 	// GetWriter returns the underlying Writer interface for sending messages.
 	// It can be used for low-level operations if needed.
 	GetWriter() WebApiWriter
+
+	// SetMessageLogger allows injecting a logger function for received messages.
+	// The function will be called for every received MessageEvent.
+	SetMessageLogger(f func(LogRecord) error)
 }

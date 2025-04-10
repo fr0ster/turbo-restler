@@ -8,6 +8,26 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+type LogOp string
+
+const (
+	OpConnect   LogOp = "connect"
+	OpSend      LogOp = "send"
+	OpReceive   LogOp = "receive"
+	OpError     LogOp = "error"
+	OpClose     LogOp = "close"
+	OpSubscribe LogOp = "subscribe"
+	OpUnsub     LogOp = "unsubscribe"
+	OpPing      LogOp = "ping"
+	OpPong      LogOp = "pong"
+)
+
+type LogRecord struct {
+	Op   LogOp  // type of event (e.g., "send", "recv", "error", etc.)
+	Body []byte // payload, if any
+	Err  error  // error, if any
+}
+
 // MessageEvent represents a data or error message from the WebSocket
 type MessageEvent struct {
 	Body  []byte
@@ -47,6 +67,8 @@ type WebSocketWrapper struct {
 	controlWriter ControlWriter
 	stopOnce      sync.Once
 	doneChan      chan struct{}
+
+	logger func(LogRecord) error
 }
 
 // NewWebSocketWrapper creates a new wrapper around a websocket connection
@@ -143,6 +165,13 @@ func (s *WebSocketWrapper) SetCloseHandler(f func(int, string, ControlWriter) er
 	s.closeHandler = f
 }
 
+// SetMessageLogger sets a logger function for received messages
+func (s *WebSocketWrapper) SetMessageLogger(f func(LogRecord) error) {
+	s.subMu.Lock()
+	defer s.subMu.Unlock()
+	s.logger = f
+}
+
 // GetReader returns the underlying WebApiReader
 func (s *WebSocketWrapper) GetReader() WebApiReader {
 	return s.conn
@@ -157,6 +186,9 @@ func (s *WebSocketWrapper) GetWriter() WebApiWriter {
 func (s *WebSocketWrapper) readLoop() {
 	for {
 		msgType, msg, err := s.conn.ReadMessage()
+		if s.logger != nil {
+			s.logger(LogRecord{Op: OpReceive, Body: msg, Err: err})
+		}
 		if err != nil {
 			s.emit(MessageEvent{Error: err})
 			s.Close()
@@ -175,6 +207,9 @@ func (s *WebSocketWrapper) writeLoop() {
 		case msg := <-s.sendQueue:
 			s.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			err := s.conn.WriteMessage(websocket.TextMessage, msg)
+			if s.logger != nil {
+				s.logger(LogRecord{Op: OpSend, Body: msg, Err: err})
+			}
 			if err != nil {
 				s.emit(MessageEvent{Error: err})
 				s.Close()
