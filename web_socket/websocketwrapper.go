@@ -1,8 +1,10 @@
 package web_socket
 
 import (
-	"math/rand"
+	"log"
+	"runtime/debug"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -11,62 +13,82 @@ import (
 type LogOp string
 
 const (
-	OpConnect   LogOp = "connect"
-	OpSend      LogOp = "send"
-	OpReceive   LogOp = "receive"
-	OpError     LogOp = "error"
-	OpClose     LogOp = "close"
-	OpSubscribe LogOp = "subscribe"
-	OpUnsub     LogOp = "unsubscribe"
-	OpPing      LogOp = "ping"
-	OpPong      LogOp = "pong"
+	OpConnect     LogOp = "connect"
+	OpSend        LogOp = "send"
+	OpReceive     LogOp = "receive"
+	OpError       LogOp = "error"
+	OpClose       LogOp = "close"
+	OpSubscribe   LogOp = "subscribe"
+	OpUnsubscribe LogOp = "unsubscribe"
+	OpPing        LogOp = "ping"
+	OpPong        LogOp = "pong"
 )
 
 type LogRecord struct {
-	Op   LogOp  // type of event (e.g., "send", "recv", "error", etc.)
-	Body []byte // payload, if any
-	Err  error  // error, if any
+	Op   LogOp
+	Body []byte
+	Err  error
 }
 
-// MessageEvent represents a data or error message from the WebSocket
 type MessageEvent struct {
 	Body  []byte
 	Error error
 }
 
-// WriteEvent represents a write event
 type WriteCallback func(error)
+
+type SendResult struct {
+	ch chan error
+}
+
+func NewSendResult() SendResult {
+	return SendResult{ch: make(chan error, 1)}
+}
+
+func (r SendResult) Send(err error) {
+	select {
+	case r.ch <- err:
+	default:
+	}
+}
+
+func (r SendResult) Recv() <-chan error {
+	return r.ch
+}
+
+func (r SendResult) IsZero() bool {
+	return r.ch == nil
+}
+
 type WriteEvent struct {
 	Body  []byte
 	Await WriteCallback
 	Done  SendResult
 }
 
-// ControlWriter provides a limited interface for sending control frames
 type ControlWriter interface {
 	WriteControl(messageType int, data []byte, deadline time.Time) error
 }
 
-// WebApiWriter are interfaces for writing and reading messages
 type WebApiWriter interface {
 	WriteMessage(messageType int, data []byte) error
 }
 
-// WebApiReader is an interface for reading messages from a WebSocket
 type WebApiReader interface {
 	ReadMessage() (messageType int, data []byte, err error)
 }
 
-// WebSocketWrapper is a concrete implementation of the WebSocketInterface.
-// It wraps a gorilla/websocket connection and provides methods for
-// sending messages, subscribing to events, and handling control frames.
-// WebSocketWrapper provides a safe abstraction over a WebSocket connection
-// with separate read/write loops, event subscriptions, and control handlers
+type subscriberMeta struct {
+	Handler    func(MessageEvent)
+	Registered string
+}
+
 type WebSocketWrapper struct {
 	conn        *websocket.Conn
 	sendQueue   chan WriteEvent
-	subscribers map[int]func(MessageEvent)
+	subscribers map[int]subscriberMeta
 	subMu       sync.RWMutex
+	subCounter  atomic.Int32
 
 	pingHandler  func(string, ControlWriter) error
 	pongHandler  func(string, ControlWriter) error
@@ -79,22 +101,19 @@ type WebSocketWrapper struct {
 	logger func(LogRecord)
 }
 
-// NewWebSocketWrapper creates a new wrapper around a websocket connection
 func NewWebSocketWrapper(conn *websocket.Conn, sendQueueSize ...int) *WebSocketWrapper {
 	if len(sendQueueSize) == 0 {
 		sendQueueSize = append(sendQueueSize, 64)
 	}
-	w := &WebSocketWrapper{
+	return &WebSocketWrapper{
 		conn:          conn,
 		sendQueue:     make(chan WriteEvent, sendQueueSize[0]),
-		subscribers:   make(map[int]func(MessageEvent)),
+		subscribers:   make(map[int]subscriberMeta),
 		doneChan:      make(chan struct{}),
 		controlWriter: &wsControl{conn},
 	}
-	return w
 }
 
-// Open starts the read/write loops
 func (s *WebSocketWrapper) Open() {
 	s.conn.SetPingHandler(func(appData string) error {
 		if s.pingHandler != nil {
@@ -121,7 +140,6 @@ func (s *WebSocketWrapper) Open() {
 	go s.writeLoop()
 }
 
-// Close cleanly shuts down the wrapper and closes the WebSocket connection
 func (s *WebSocketWrapper) Close() {
 	s.stopOnce.Do(func() {
 		close(s.doneChan)
@@ -130,7 +148,6 @@ func (s *WebSocketWrapper) Close() {
 	})
 }
 
-// Send enqueues a message to be written to the WebSocket
 func (s *WebSocketWrapper) Send(msg WriteEvent) error {
 	select {
 	case s.sendQueue <- msg:
@@ -140,60 +157,54 @@ func (s *WebSocketWrapper) Send(msg WriteEvent) error {
 	}
 }
 
-// Subscribe adds a handler for message events
-func (s *WebSocketWrapper) Subscribe(f func(MessageEvent)) int {
-	id := rand.Int()
+func (s *WebSocketWrapper) Subscribe(handler func(MessageEvent)) int {
+	id := int(s.subCounter.Add(1))
 	s.subMu.Lock()
-	s.subscribers[id] = f
+	s.subscribers[id] = subscriberMeta{
+		Handler:    handler,
+		Registered: string(debug.Stack()),
+	}
 	s.subMu.Unlock()
+
 	return id
 }
 
-// Unsubscribe removes a handler by ID
 func (s *WebSocketWrapper) Unsubscribe(id int) {
 	s.subMu.Lock()
 	delete(s.subscribers, id)
 	s.subMu.Unlock()
 }
 
-// Done returns a channel that is closed when the stream is closed
 func (s *WebSocketWrapper) Done() <-chan struct{} {
 	return s.doneChan
 }
 
-// SetPingHandler sets a handler for Ping frames
 func (s *WebSocketWrapper) SetPingHandler(f func(string, ControlWriter) error) {
 	s.pingHandler = f
 }
 
-// SetPongHandler sets a handler for Pong frames
 func (s *WebSocketWrapper) SetPongHandler(f func(string, ControlWriter) error) {
 	s.pongHandler = f
 }
 
-// SetCloseHandler sets a handler for Close frames
 func (s *WebSocketWrapper) SetCloseHandler(f func(int, string, ControlWriter) error) {
 	s.closeHandler = f
 }
 
-// SetMessageLogger sets a logger function for received messages
 func (s *WebSocketWrapper) SetMessageLogger(f func(LogRecord)) {
 	s.subMu.Lock()
 	defer s.subMu.Unlock()
 	s.logger = f
 }
 
-// GetReader returns the underlying WebApiReader
 func (s *WebSocketWrapper) GetReader() WebApiReader {
 	return s.conn
 }
 
-// GetWriter returns the underlying WebApiWriter
 func (s *WebSocketWrapper) GetWriter() WebApiWriter {
 	return s.conn
 }
 
-// Internal read loop
 func (s *WebSocketWrapper) readLoop() {
 	for {
 		msgType, msg, err := s.conn.ReadMessage()
@@ -211,7 +222,6 @@ func (s *WebSocketWrapper) readLoop() {
 	}
 }
 
-// Internal write loop
 func (s *WebSocketWrapper) writeLoop() {
 	for {
 		select {
@@ -221,7 +231,7 @@ func (s *WebSocketWrapper) writeLoop() {
 			if msg.Await != nil {
 				msg.Await(err)
 			}
-			if msg.Done.ch != nil {
+			if !msg.Done.IsZero() {
 				msg.Done.Send(err)
 			}
 			if s.logger != nil {
@@ -237,16 +247,21 @@ func (s *WebSocketWrapper) writeLoop() {
 	}
 }
 
-// Emit pushes a message to all subscribers
 func (s *WebSocketWrapper) emit(evt MessageEvent) {
 	s.subMu.RLock()
 	defer s.subMu.RUnlock()
-	for _, h := range s.subscribers {
-		go h(evt) // non-blocking
+	for id, meta := range s.subscribers {
+		go func(id int, meta subscriberMeta) {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("[emit] subscriber %d panicked: %v\nregistered at:\n%s", id, r, meta.Registered)
+				}
+			}()
+			meta.Handler(evt)
+		}(id, meta)
 	}
 }
 
-// wsControl implements ControlWriter
 type wsControl struct {
 	conn *websocket.Conn
 }
