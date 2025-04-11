@@ -101,7 +101,7 @@ func TestReadWrite(t *testing.T) {
 		close(done)
 	})
 
-	require.NoError(t, sw.Send([]byte("hello")))
+	require.NoError(t, sw.Send(web_socket.WriteEvent{Body: []byte("hello")}))
 
 	select {
 	case <-done:
@@ -180,7 +180,7 @@ func TestConcurrentConsumers(t *testing.T) {
 		})
 	}
 
-	require.NoError(t, sw.Send([]byte("hello")))
+	require.NoError(t, sw.Send(web_socket.WriteEvent{Body: []byte("hello")}))
 
 	done := make(chan struct{})
 	go func() {
@@ -257,7 +257,7 @@ func TestManyConcurrentConsumers(t *testing.T) {
 		})
 	}
 
-	require.NoError(t, sw.Send([]byte("stress")))
+	require.NoError(t, sw.Send(web_socket.WriteEvent{Body: []byte("stress")}))
 
 	done := make(chan struct{})
 	go func() {
@@ -370,7 +370,7 @@ func TestMessageLoggerCalled(t *testing.T) {
 		logged <- evt
 	})
 
-	require.NoError(t, sw.Send([]byte("log-me")))
+	require.NoError(t, sw.Send(web_socket.WriteEvent{Body: []byte("log-me")}))
 
 	select {
 	case evt := <-logged:

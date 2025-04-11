@@ -34,6 +34,14 @@ type MessageEvent struct {
 	Error error
 }
 
+// WriteEvent represents a write event
+type WriteCallback func(error)
+type WriteEvent struct {
+	Body  []byte
+	Await WriteCallback
+	Done  SendResult
+}
+
 // ControlWriter provides a limited interface for sending control frames
 type ControlWriter interface {
 	WriteControl(messageType int, data []byte, deadline time.Time) error
@@ -56,7 +64,7 @@ type WebApiReader interface {
 // with separate read/write loops, event subscriptions, and control handlers
 type WebSocketWrapper struct {
 	conn        *websocket.Conn
-	sendQueue   chan []byte
+	sendQueue   chan WriteEvent
 	subscribers map[int]func(MessageEvent)
 	subMu       sync.RWMutex
 
@@ -72,10 +80,13 @@ type WebSocketWrapper struct {
 }
 
 // NewWebSocketWrapper creates a new wrapper around a websocket connection
-func NewWebSocketWrapper(conn *websocket.Conn) *WebSocketWrapper {
+func NewWebSocketWrapper(conn *websocket.Conn, sendQueueSize ...int) *WebSocketWrapper {
+	if len(sendQueueSize) == 0 {
+		sendQueueSize = append(sendQueueSize, 64)
+	}
 	w := &WebSocketWrapper{
 		conn:          conn,
-		sendQueue:     make(chan []byte, 64),
+		sendQueue:     make(chan WriteEvent, sendQueueSize[0]),
 		subscribers:   make(map[int]func(MessageEvent)),
 		doneChan:      make(chan struct{}),
 		controlWriter: &wsControl{conn},
@@ -120,7 +131,7 @@ func (s *WebSocketWrapper) Close() {
 }
 
 // Send enqueues a message to be written to the WebSocket
-func (s *WebSocketWrapper) Send(msg []byte) error {
+func (s *WebSocketWrapper) Send(msg WriteEvent) error {
 	select {
 	case s.sendQueue <- msg:
 		return nil
@@ -206,12 +217,17 @@ func (s *WebSocketWrapper) writeLoop() {
 		select {
 		case msg := <-s.sendQueue:
 			s.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-			err := s.conn.WriteMessage(websocket.TextMessage, msg)
+			err := s.conn.WriteMessage(websocket.TextMessage, msg.Body)
+			if msg.Await != nil {
+				msg.Await(err)
+			}
+			if msg.Done.ch != nil {
+				msg.Done.Send(err)
+			}
 			if s.logger != nil {
-				s.logger(LogRecord{Op: OpSend, Body: msg, Err: err})
+				s.logger(LogRecord{Op: OpSend, Body: msg.Body, Err: err})
 			}
 			if err != nil {
-				s.emit(MessageEvent{Error: err})
 				s.Close()
 				return
 			}
