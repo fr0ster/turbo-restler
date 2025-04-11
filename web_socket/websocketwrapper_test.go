@@ -383,3 +383,165 @@ func TestMessageLoggerCalled(t *testing.T) {
 	sw.Close()
 	<-sw.Done()
 }
+
+func TestSubscribeUnsubscribe(t *testing.T) {
+	u, cleanup := StartWebSocketTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, _ := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+		for {
+			mt, msg, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			_ = conn.WriteMessage(mt, msg)
+		}
+	}))
+	defer cleanup()
+
+	conn, _, err := websocket.DefaultDialer.Dial(u, nil)
+	require.NoError(t, err)
+
+	sw := web_socket.NewWebSocketWrapper(conn)
+	sw.Open()
+
+	called := make(chan struct{}, 1)
+
+	id := sw.Subscribe(func(evt web_socket.MessageEvent) {
+		called <- struct{}{}
+	})
+
+	sw.Unsubscribe(id)
+
+	require.NoError(t, sw.Send(web_socket.WriteEvent{Body: []byte("ping")}))
+
+	select {
+	case <-called:
+		t.Fatal("unsubscribed handler was called")
+	case <-time.After(200 * time.Millisecond):
+		// OK
+	}
+
+	sw.Close()
+	<-sw.Done()
+}
+func TestSendWithSendResult(t *testing.T) {
+	u, cleanup := StartWebSocketTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, _ := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+		for {
+			mt, msg, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			_ = conn.WriteMessage(mt, msg)
+		}
+	}))
+	defer cleanup()
+
+	conn, _, err := websocket.DefaultDialer.Dial(u, nil)
+	require.NoError(t, err)
+
+	sw := web_socket.NewWebSocketWrapper(conn)
+	sw.Open()
+
+	res := web_socket.NewSendResult()
+	require.NoError(t, sw.Send(web_socket.WriteEvent{
+		Body: []byte("sync"),
+		Done: res,
+	}))
+
+	select {
+	case err := <-res.Recv():
+		assert.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("SendResult timed out")
+	}
+
+	sw.Close()
+	<-sw.Done()
+}
+func TestSendWithAwaitCallback(t *testing.T) {
+	u, cleanup := StartWebSocketTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, _ := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+		for {
+			mt, msg, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			_ = conn.WriteMessage(mt, msg)
+		}
+	}))
+	defer cleanup()
+
+	conn, _, err := websocket.DefaultDialer.Dial(u, nil)
+	require.NoError(t, err)
+
+	sw := web_socket.NewWebSocketWrapper(conn)
+	sw.Open()
+
+	awaitCalled := make(chan error, 1)
+
+	require.NoError(t, sw.Send(web_socket.WriteEvent{
+		Body: []byte("async"),
+		Await: func(err error) {
+			awaitCalled <- err
+		},
+	}))
+
+	select {
+	case err := <-awaitCalled:
+		assert.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("Await callback not called")
+	}
+
+	sw.Close()
+	<-sw.Done()
+}
+func TestHandlerPanic(t *testing.T) {
+	t.Log("Test started")
+
+	u, cleanup := StartWebSocketTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, _ := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+		for {
+			mt, msg, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			_ = conn.WriteMessage(mt, msg)
+		}
+	}))
+	defer cleanup()
+
+	conn, _, err := websocket.DefaultDialer.Dial(u, nil)
+	require.NoError(t, err)
+
+	sw := web_socket.NewWebSocketWrapper(conn)
+	sw.Open()
+
+	// канал для сповіщення про паніку
+	panicHappened := make(chan any, 1)
+
+	sw.Subscribe(func(evt web_socket.MessageEvent) {
+		defer func() {
+			if r := recover(); r != nil {
+				panicHappened <- r
+			}
+		}()
+		panic("intentional")
+	})
+
+	_ = sw.Send(web_socket.WriteEvent{Body: []byte("trigger")})
+
+	select {
+	case r := <-panicHappened:
+		assert.Equal(t, "intentional", r)
+	case <-time.After(1 * time.Second):
+		t.Fatal("panic did not happen")
+	}
+
+	sw.Close()
+	<-sw.Done()
+}
+
+func init() {
+	fmt.Println(">>> TEST INIT CALLED")
+}

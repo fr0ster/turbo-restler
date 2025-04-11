@@ -1,7 +1,6 @@
 package web_socket
 
 import (
-	"log"
 	"runtime/debug"
 	"sync"
 	"sync/atomic"
@@ -165,7 +164,6 @@ func (s *WebSocketWrapper) Subscribe(handler func(MessageEvent)) int {
 		Registered: string(debug.Stack()),
 	}
 	s.subMu.Unlock()
-
 	return id
 }
 
@@ -250,15 +248,8 @@ func (s *WebSocketWrapper) writeLoop() {
 func (s *WebSocketWrapper) emit(evt MessageEvent) {
 	s.subMu.RLock()
 	defer s.subMu.RUnlock()
-	for id, meta := range s.subscribers {
-		go func(id int, meta subscriberMeta) {
-			defer func() {
-				if r := recover(); r != nil {
-					log.Printf("[emit] subscriber %d panicked: %v\nregistered at:\n%s", id, r, meta.Registered)
-				}
-			}()
-			meta.Handler(evt)
-		}(id, meta)
+	for _, meta := range s.subscribers {
+		go meta.Handler(evt)
 	}
 }
 
