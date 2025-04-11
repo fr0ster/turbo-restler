@@ -29,7 +29,16 @@ type LogRecord struct {
 	Err  error
 }
 
+type MessageKind int
+
+const (
+	KindData MessageKind = iota
+	KindError
+	KindControl
+)
+
 type MessageEvent struct {
+	Kind  MessageKind
 	Body  []byte
 	Error error
 }
@@ -210,12 +219,14 @@ func (s *WebSocketWrapper) readLoop() {
 			s.logger(LogRecord{Op: OpReceive, Body: msg, Err: err})
 		}
 		if err != nil {
-			s.emit(MessageEvent{Error: err})
+			s.emit(MessageEvent{Kind: KindError, Error: err})
 			s.Close()
 			return
 		}
 		if msgType == websocket.TextMessage || msgType == websocket.BinaryMessage {
-			s.emit(MessageEvent{Body: msg})
+			s.emit(MessageEvent{Kind: KindData, Body: msg})
+		} else {
+			s.emit(MessageEvent{Kind: KindControl, Body: msg})
 		}
 	}
 }

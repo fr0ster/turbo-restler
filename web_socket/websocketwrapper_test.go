@@ -403,26 +403,40 @@ func TestSubscribeUnsubscribe(t *testing.T) {
 	sw := web_socket.NewWebSocketWrapper(conn)
 	sw.Open()
 
-	called := make(chan struct{}, 1)
+	called := make(chan string, 2)
 
 	id := sw.Subscribe(func(evt web_socket.MessageEvent) {
-		called <- struct{}{}
+		fmt.Println(">>> HANDLER CALLED")
+		called <- string(evt.Body)
 	})
+	fmt.Println(">>> SUBSCRIBED")
 
-	sw.Unsubscribe(id)
-
-	require.NoError(t, sw.Send(web_socket.WriteEvent{Body: []byte("ping")}))
-
+	// Надсилаємо перше повідомлення, handler має спрацювати
+	require.NoError(t, sw.Send(web_socket.WriteEvent{Body: []byte("first")}))
 	select {
-	case <-called:
-		t.Fatal("unsubscribed handler was called")
-	case <-time.After(200 * time.Millisecond):
+	case msg := <-called:
+		require.Equal(t, "first", msg)
+	case <-time.After(1 * time.Second):
+		t.Fatal("handler was not called before Unsubscribe")
+	}
+
+	// Відписуємось
+	sw.Unsubscribe(id)
+	fmt.Println(">>> UNSUBSCRIBED")
+
+	// Надсилаємо друге повідомлення — handler не має спрацювати
+	require.NoError(t, sw.Send(web_socket.WriteEvent{Body: []byte("second")}))
+	select {
+	case msg := <-called:
+		t.Fatalf("handler was called after Unsubscribe, got message: %s", msg)
+	case <-time.After(500 * time.Millisecond):
 		// OK
 	}
 
 	sw.Close()
 	<-sw.Done()
 }
+
 func TestSendWithSendResult(t *testing.T) {
 	u, cleanup := StartWebSocketTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, _ := (&websocket.Upgrader{}).Upgrade(w, r, nil)
@@ -517,7 +531,7 @@ func TestHandlerPanic(t *testing.T) {
 	sw := web_socket.NewWebSocketWrapper(conn)
 	sw.Open()
 
-	// канал для сповіщення про паніку
+	// channel for notifying about panic
 	panicHappened := make(chan any, 1)
 
 	sw.Subscribe(func(evt web_socket.MessageEvent) {
