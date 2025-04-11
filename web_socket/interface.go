@@ -12,7 +12,7 @@ type WebSocketInterface interface {
 
 	// Send queues a message to be sent over the WebSocket connection.
 	// Returns an error if the queue is full or the connection is closed.
-	Send(msg []byte) error
+	Send(msg WriteEvent) error
 
 	// Subscribe registers a new message event handler.
 	// Returns a unique ID that can be used to unsubscribe later.
