@@ -140,11 +140,11 @@ func TestWebSocketInterface_Logger(t *testing.T) {
 		}
 	})
 
-	_ = ws.Send(web_socket.WriteEvent{Body: []byte("logme")})
+	_ = ws.Send(web_socket.WriteEvent{Body: []byte("log-me")})
 
 	select {
 	case l := <-logged:
-		require.Equal(t, "logme", string(l.Body))
+		require.Equal(t, "log-me", string(l.Body))
 	case <-time.After(time.Second):
 		t.Fatal("Logger was not called")
 	}
