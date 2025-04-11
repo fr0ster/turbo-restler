@@ -411,7 +411,7 @@ func TestSubscribeUnsubscribe(t *testing.T) {
 	})
 	fmt.Println(">>> SUBSCRIBED")
 
-	// Надсилаємо перше повідомлення, handler має спрацювати
+	// Send the first message, the handler should be triggered
 	require.NoError(t, sw.Send(web_socket.WriteEvent{Body: []byte("first")}))
 	select {
 	case msg := <-called:
@@ -420,11 +420,11 @@ func TestSubscribeUnsubscribe(t *testing.T) {
 		t.Fatal("handler was not called before Unsubscribe")
 	}
 
-	// Відписуємось
+	// Unsubscribe
 	sw.Unsubscribe(id)
 	fmt.Println(">>> UNSUBSCRIBED")
 
-	// Надсилаємо друге повідомлення — handler не має спрацювати
+	// Send the second message — the handler should not be triggered
 	require.NoError(t, sw.Send(web_socket.WriteEvent{Body: []byte("second")}))
 	select {
 	case msg := <-called:
