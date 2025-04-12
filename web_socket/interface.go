@@ -1,5 +1,7 @@
 package web_socket
 
+import "time"
+
 // WebSocketInterface defines the public interface for a WebSocket wrapper
 // that provides event-based message handling, control frame handlers,
 // and safe shutdown capabilities.
@@ -32,6 +34,12 @@ type WebSocketInterface interface {
 
 	// SetCloseHandler registers a callback to be invoked when a Close frame is received.
 	SetCloseHandler(f func(int, string, ControlWriter) error)
+
+	// SetReadTimeout sets the read timeout duration for the connection.
+	SetReadTimeout(readTimeout time.Duration)
+
+	// SetWriteTimeout sets the read and write timeout durations for the connection.
+	SetWriteTimeout(writeTimeout time.Duration)
 
 	// GetReader returns the underlying Reader interface for receiving messages.
 	// It can be used for low-level operations if needed.

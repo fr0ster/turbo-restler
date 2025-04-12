@@ -101,6 +101,9 @@ type WebSocketWrapper struct {
 	subMu       sync.RWMutex
 	subCounter  atomic.Int32
 
+	readTimeout  *time.Duration
+	writeTimeout *time.Duration
+
 	pingHandler  func(string, ControlWriter) error
 	pongHandler  func(string, ControlWriter) error
 	closeHandler func(int, string, ControlWriter) error
@@ -210,6 +213,20 @@ func (s *WebSocketWrapper) SetMessageLogger(f func(LogRecord)) {
 	s.logger = f
 }
 
+func (s *WebSocketWrapper) SetReadTimeout(readTimeout time.Duration) {
+	if s.readTimeout == nil {
+		s.readTimeout = new(time.Duration)
+	}
+	*s.readTimeout = readTimeout
+}
+
+func (s *WebSocketWrapper) SetWriteTimeout(writeTimeout time.Duration) {
+	if s.writeTimeout == nil {
+		s.writeTimeout = new(time.Duration)
+	}
+	*s.writeTimeout = writeTimeout
+}
+
 func (s *WebSocketWrapper) GetReader() WebApiReader {
 	return s.conn
 }
@@ -220,6 +237,9 @@ func (s *WebSocketWrapper) GetWriter() WebApiWriter {
 
 func (s *WebSocketWrapper) readLoop() {
 	for {
+		if s.readTimeout != nil {
+			s.conn.SetReadDeadline(time.Now().Add(*s.readTimeout))
+		}
 		msgType, msg, err := s.conn.ReadMessage()
 		if s.logger != nil {
 			s.logger(LogRecord{Op: OpReceive, Body: msg, Err: err})
@@ -241,6 +261,9 @@ func (s *WebSocketWrapper) writeLoop() {
 	for {
 		select {
 		case msg := <-s.sendQueue:
+			if s.writeTimeout != nil {
+				s.conn.SetWriteDeadline(time.Now().Add(*s.writeTimeout))
+			}
 			s.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			err := s.conn.WriteMessage(websocket.TextMessage, msg.Body)
 			if msg.Await != nil {

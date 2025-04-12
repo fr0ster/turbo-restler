@@ -561,6 +561,32 @@ func TestHandlerPanic(t *testing.T) {
 	<-sw.Done()
 }
 
+func TestHTimeOuts(t *testing.T) {
+	u, cleanup := StartWebSocketTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, _ := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+		for {
+			mt, msg, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			_ = conn.WriteMessage(mt, msg)
+		}
+	}))
+	defer cleanup()
+
+	conn, _, err := websocket.DefaultDialer.Dial(u, nil)
+	require.NoError(t, err)
+
+	sw := web_socket.NewWebSocketWrapper(conn)
+	sw.Open()
+
+	sw.SetReadTimeout(1 * time.Second)
+	sw.SetWriteTimeout(1 * time.Second)
+
+	sw.Close()
+	<-sw.Done()
+}
+
 func init() {
 	fmt.Println(">>> TEST INIT CALLED")
 }
