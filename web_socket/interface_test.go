@@ -125,10 +125,11 @@ func TestWebSocketInterface_GetReaderWriter(t *testing.T) {
 		<-ws.Done()
 	}()
 
+	ws.GetReader().(*websocket.Conn).SetWriteDeadline(time.Now().Add(time.Second))
 	err := ws.GetWriter().WriteMessage(websocket.TextMessage, []byte("direct"))
 	require.NoError(t, err)
 
-	ws.GetReader().(*websocket.Conn).SetReadDeadline(time.Now().Add(time.Second))
+	ws.GetReader().SetReadDeadline(time.Now().Add(time.Second))
 	_, data, err := ws.GetReader().ReadMessage()
 	require.NoError(t, err)
 	require.Equal(t, "direct", string(data))

@@ -80,10 +80,12 @@ type ControlWriter interface {
 }
 
 type WebApiWriter interface {
+	SetWriteDeadline(t time.Time) error
 	WriteMessage(messageType int, data []byte) error
 }
 
 type WebApiReader interface {
+	SetReadDeadline(t time.Time) error
 	ReadMessage() (messageType int, data []byte, err error)
 }
 
