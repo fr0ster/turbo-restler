@@ -69,9 +69,13 @@ func TestWebSocketInterface_Unsubscribe(t *testing.T) {
 	}()
 
 	called := false
-	id := ws.Subscribe(func(evt web_socket.MessageEvent) {
+	id, err := ws.Subscribe(func(evt web_socket.MessageEvent) {
 		called = true
 	})
+	require.NoError(t, err)
+	require.NotEmpty(t, id)
+	_, err = ws.Subscribe(nil)
+	require.Error(t, err)
 	ws.Unsubscribe(id)
 
 	_ = ws.Send(web_socket.WriteEvent{Body: []byte("test")})

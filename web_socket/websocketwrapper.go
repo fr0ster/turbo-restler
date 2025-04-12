@@ -1,6 +1,7 @@
 package web_socket
 
 import (
+	"fmt"
 	"runtime/debug"
 	"sync"
 	"sync/atomic"
@@ -165,7 +166,10 @@ func (s *WebSocketWrapper) Send(msg WriteEvent) error {
 	}
 }
 
-func (s *WebSocketWrapper) Subscribe(handler func(MessageEvent)) int {
+func (s *WebSocketWrapper) Subscribe(handler func(MessageEvent)) (int, error) {
+	if handler == nil {
+		return 0, fmt.Errorf("handler cannot be nil")
+	}
 	id := int(s.subCounter.Add(1))
 	s.subMu.Lock()
 	s.subscribers[id] = subscriberMeta{
@@ -173,7 +177,7 @@ func (s *WebSocketWrapper) Subscribe(handler func(MessageEvent)) int {
 		Registered: string(debug.Stack()),
 	}
 	s.subMu.Unlock()
-	return id
+	return id, nil
 }
 
 func (s *WebSocketWrapper) Unsubscribe(id int) {

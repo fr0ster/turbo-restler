@@ -16,7 +16,7 @@ type WebSocketInterface interface {
 
 	// Subscribe registers a new message event handler.
 	// Returns a unique ID that can be used to unsubscribe later.
-	Subscribe(f func(MessageEvent)) int
+	Subscribe(f func(MessageEvent)) (int, error)
 
 	// Unsubscribe removes a previously registered event handler by ID.
 	Unsubscribe(id int)

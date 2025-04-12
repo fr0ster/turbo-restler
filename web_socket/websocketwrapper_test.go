@@ -405,11 +405,16 @@ func TestSubscribeUnsubscribe(t *testing.T) {
 
 	called := make(chan string, 2)
 
-	id := sw.Subscribe(func(evt web_socket.MessageEvent) {
+	id, err := sw.Subscribe(func(evt web_socket.MessageEvent) {
 		fmt.Println(">>> HANDLER CALLED")
 		called <- string(evt.Body)
 	})
+	require.NoError(t, err)
+	require.NotEmpty(t, id)
 	fmt.Println(">>> SUBSCRIBED")
+
+	_, err = sw.Subscribe(nil)
+	require.Error(t, err)
 
 	// Send the first message, the handler should be triggered
 	require.NoError(t, sw.Send(web_socket.WriteEvent{Body: []byte("first")}))
