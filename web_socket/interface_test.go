@@ -36,8 +36,10 @@ func echoHandler(w http.ResponseWriter, r *http.Request) {
 
 func TestWebSocketInterface_BasicSendReceive(t *testing.T) {
 	ws := newTestWS(t)
-	defer ws.Close()
-	<-ws.Done()
+	defer func() {
+		ws.Close()
+		<-ws.Done()
+	}()
 
 	recv := make(chan string, 1)
 	ws.Subscribe(func(evt web_socket.MessageEvent) {
@@ -61,8 +63,10 @@ func TestWebSocketInterface_BasicSendReceive(t *testing.T) {
 
 func TestWebSocketInterface_Unsubscribe(t *testing.T) {
 	ws := newTestWS(t)
-	defer ws.Close()
-	<-ws.Done()
+	defer func() {
+		ws.Close()
+		<-ws.Done()
+	}()
 
 	called := false
 	id := ws.Subscribe(func(evt web_socket.MessageEvent) {
