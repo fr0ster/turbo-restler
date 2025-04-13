@@ -176,18 +176,24 @@ func TestPingPongTimeoutClose(t *testing.T) {
 	sw := web_socket.NewWebSocketWrapper(conn)
 
 	// ✅ Channel to verify that Pong was sent
-	pongSent := make(chan struct{})
+	pongSent := make(chan struct{}, 1)
 
 	sw.SetPingHandler(func(s string) error {
 		err := sw.GetControl().WriteControl(websocket.PongMessage, []byte(s), time.Now().Add(time.Second))
 		if err == nil {
 			fmt.Println("✅ Client sent Pong:", s)
-			close(pongSent)
+			select {
+			case <-pongSent:
+			default:
+				close(pongSent)
+			}
 		}
 		return err
 	})
 
 	sw.Open()
+	<-sw.Started()
+	time.Sleep(1000 * time.Millisecond)
 
 	// ✅ Waiting for Pong to be sent (i.e., Ping received)
 	select {

@@ -90,9 +90,9 @@ type wrappedReader struct {
 }
 
 func (r *wrappedReader) ReadMessage() (int, []byte, error) {
-	// if r.wrapper.IsLoopStarted() {
-	// 	return 0, nil, errors.New("read loop already started")
-	// }
+	if r.wrapper.readIsWorked.Load() {
+		return 0, nil, errors.New("read loop still worked")
+	}
 	return r.wrapper.conn.ReadMessage()
 }
 
@@ -101,6 +101,9 @@ type wrappedWriter struct {
 }
 
 func (r *wrappedWriter) WriteMessage(messageType int, data []byte) error {
+	if r.wrapper.writeIsWorked.Load() {
+		return errors.New("write loop still worked")
+	}
 	return r.wrapper.conn.WriteMessage(messageType, data)
 }
 
@@ -143,7 +146,7 @@ func NewWebSocketWrapper(conn *websocket.Conn, sendQueueSize ...int) *WebSocketW
 	if len(sendQueueSize) == 0 {
 		sendQueueSize = append(sendQueueSize, 64)
 	}
-	return &WebSocketWrapper{
+	s := &WebSocketWrapper{
 		conn:               conn,
 		readMu:             sync.Mutex{},
 		writeMu:            sync.Mutex{},
@@ -163,11 +166,72 @@ func NewWebSocketWrapper(conn *websocket.Conn, sendQueueSize ...int) *WebSocketW
 		remoteCloseHandler: nil,
 		stopOnce:           sync.Once{},
 	}
+	go func() {
+		for {
+			select {
+			case <-s.doneChan:
+				return
+			default:
+				// Continue to check the state of the loops
+				if s.readIsWorked.Load() && s.writeIsWorked.Load() {
+					close(s.loopStarted) // Signal that both loops have started
+					return
+				} else if !s.readIsWorked.Load() && !s.writeIsWorked.Load() {
+					s.loopStarted = make(chan struct{}) // Reset the loopStarted channel
+				}
+				time.Sleep(10 * time.Millisecond) // Periodically check the state of the loops
+			}
+		}
+	}()
+	go func() {
+		for {
+			select {
+			case <-s.doneChan:
+				return
+			default:
+				if !s.readIsWorked.Load() {
+					s.readLoopDone = make(chan struct{})
+				}
+				if !s.writeIsWorked.Load() {
+					s.writeLoopDone = make(chan struct{})
+				}
+			}
+			time.Sleep(10 * time.Millisecond) // Periodically check the state of the loops
+		}
+	}()
+	return s
 }
 
 func (s *WebSocketWrapper) checkLoops() {
 	if !s.readIsWorked.Load() && !s.writeIsWorked.Load() {
 		close(s.loopStopped) // Signal that both loops have finished
+	}
+}
+
+func (s *WebSocketWrapper) startLoops() {
+	if !s.readIsWorked.Load() {
+		s.readLoopDone = make(chan struct{})
+		go func() {
+			s.readLoop()
+			select {
+			case <-s.readLoopDone:
+			default:
+				close(s.readLoopDone)
+			}
+			s.checkLoops()
+		}()
+	}
+	if !s.writeIsWorked.Load() {
+		s.writeLoopDone = make(chan struct{})
+		go func() {
+			s.writeLoop()
+			select {
+			case <-s.writeLoopDone:
+			default:
+				close(s.writeLoopDone)
+			}
+			s.checkLoops()
+		}()
 	}
 }
 
@@ -193,33 +257,13 @@ func (s *WebSocketWrapper) Open() {
 		return nil
 	})
 
-	readDone := make(chan struct{})
-	writeDone := make(chan struct{})
+	// readDone := make(chan struct{})
+	// writeDone := make(chan struct{})
 
-	s.readLoopDone = readDone
-	s.writeLoopDone = writeDone
+	// s.readLoopDone = readDone
+	// s.writeLoopDone = writeDone
 
-	go func() {
-		s.readLoop()
-		close(readDone)
-		s.checkLoops()
-	}()
-
-	go func() {
-		s.writeLoop()
-		close(writeDone)
-		s.checkLoops()
-	}()
-
-	go func() {
-		for {
-			if s.readIsWorked.Load() && s.writeIsWorked.Load() {
-				close(s.loopStarted) // Signal that both loops have started
-				return
-			}
-			time.Sleep(10 * time.Millisecond) // Periodically check the state of the loops
-		}
-	}()
+	s.startLoops()
 }
 
 func (s *WebSocketWrapper) Close() {
@@ -380,6 +424,8 @@ func (s *WebSocketWrapper) readLoop() {
 		} else {
 			s.emit(MessageEvent{Kind: KindControl, Body: msg})
 		}
+
+		time.Sleep(10 * time.Millisecond) // Prevent busy waiting
 	}
 }
 
@@ -444,6 +490,7 @@ func (s *WebSocketWrapper) writeLoop() {
 			s.writeIsWorked.Store(false)
 			return
 		}
+		time.Sleep(10 * time.Millisecond) // Prevent busy waiting
 	}
 }
 
@@ -523,13 +570,19 @@ func (s *WebSocketWrapper) IsWriteLoopPaused() bool {
 }
 
 func (s *WebSocketWrapper) PauseLoops() {
-	s.readMu.Lock()
-	s.writeMu.Lock()
-	s.readIsWorked.Store(false)
+	if s.readIsWorked.Load() {
+		s.readMu.Lock()
+		s.writeMu.Lock()
+	}
+	close(s.doneChan)
+	<-s.loopStopped
 }
 
 func (s *WebSocketWrapper) ResumeLoops() {
-	s.writeMu.Unlock()
-	s.readMu.Unlock()
-	s.readIsWorked.Store(true)
+	if s.readIsWorked.Load() {
+		s.writeMu.Unlock()
+		s.readMu.Unlock()
+	}
+	s.startLoops()
+	<-s.loopStarted
 }

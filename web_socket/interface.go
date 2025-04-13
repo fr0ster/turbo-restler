@@ -38,6 +38,9 @@ type WebSocketInterface interface {
 	// Done returns a read-only channel that is closed when the connection is closed.
 	Done() <-chan struct{}
 
+	// Started returns a read-only channel that is closed when the connection is opened.
+	Started() <-chan struct{}
+
 	// SetPingHandler registers a callback to be invoked when a Ping frame is received.
 	SetPingHandler(f func(string) error)
 

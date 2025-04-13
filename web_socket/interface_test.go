@@ -20,6 +20,7 @@ func newTestWS(t *testing.T) web_socket.WebSocketInterface {
 
 	ws := web_socket.NewWebSocketWrapper(conn)
 	ws.Open()
+	<-ws.Started()
 	return ws
 }
 
@@ -106,18 +107,18 @@ func TestWebSocketInterface_HandlersAndDone(t *testing.T) {
 		return ws.GetControl().WriteControl(websocket.PongMessage, []byte(data), time.Now().Add(time.Second))
 	})
 	ws.SetPongHandler(func(data string) error {
-		close(pongHandled)
-		return nil
-	})
-	ws.SetCloseHandler(func(code int, text string) error {
+		select {
+		case <-pongHandled:
+		default:
+			close(pongHandled)
+		}
 		return nil
 	})
 
 	// manually trigger ping
-	go func() {
-		time.Sleep(100 * time.Millisecond)
-		_ = ws.GetWriter().WriteMessage(websocket.PingMessage, []byte("ping"))
-	}()
+	ws.PauseLoops()
+	_ = ws.GetWriter().WriteMessage(websocket.PingMessage, []byte("ping"))
+	ws.ResumeLoops()
 
 	select {
 	case <-pongHandled:
@@ -183,12 +184,6 @@ func TestWebSocketInterface_Logger(t *testing.T) {
 
 func TestWebSocketInterface_Reopen(t *testing.T) {
 	ws := newTestWS(t)
-	defer func() {
-		ws.Close()
-		ok := ws.WaitAllLoops(1 * time.Second)
-		require.True(t, ok, "Loops did not finish in time")
-		<-ws.Done()
-	}()
 
 	recv := make(chan string, 1)
 	ws.Subscribe(func(evt web_socket.MessageEvent) {
@@ -202,10 +197,21 @@ func TestWebSocketInterface_Reopen(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	reader := ws.GetReader()
+	ws.PauseLoops()
+	_, msg, err := reader.ReadMessage()
+	require.NoError(t, err)
+	require.Equal(t, "hello", string(msg))
+	ws.ResumeLoops()
+
+	time.Sleep(100 * time.Millisecond)
+
 	select {
 	case msg := <-recv:
 		require.Equal(t, "hello", msg)
 	case <-time.After(time.Second):
 		t.Fatal("timeout waiting for message")
 	}
+	ws.Close()
+	<-ws.Done()
 }
