@@ -107,14 +107,15 @@ type subscriberMeta struct {
 }
 
 type WebSocketWrapper struct {
-	conn        *websocket.Conn
-	isClosed    atomic.Bool
-	readMu      sync.Mutex
-	writeMu     sync.Mutex
-	sendQueue   chan WriteEvent
-	subscribers map[int]subscriberMeta
-	subMu       sync.RWMutex
-	subCounter  atomic.Int32
+	conn         *websocket.Conn
+	isClosed     atomic.Bool
+	readLoopDone chan struct{}
+	readMu       sync.Mutex
+	writeMu      sync.Mutex
+	sendQueue    chan WriteEvent
+	subscribers  map[int]subscriberMeta
+	subMu        sync.RWMutex
+	subCounter   atomic.Int32
 
 	readTimeout  *time.Duration
 	writeTimeout *time.Duration
@@ -178,7 +179,14 @@ func (s *WebSocketWrapper) Open() {
 		return nil
 	})
 
-	go s.readLoop()
+	loopDone := make(chan struct{})
+	s.readLoopDone = loopDone
+
+	go func(done chan struct{}) {
+		s.readLoop()
+		close(done)
+	}(loopDone)
+
 	go s.writeLoop()
 }
 
@@ -360,6 +368,18 @@ func (s *WebSocketWrapper) readMessage() (int, []byte, error) {
 	}
 
 	return msgType, msg, err
+}
+
+func (s *WebSocketWrapper) WaitReadLoop(timeout time.Duration) bool {
+	if s.readLoopDone == nil {
+		return true // nothing to wait for
+	}
+	select {
+	case <-s.readLoopDone:
+		return true
+	case <-time.After(timeout):
+		return false
+	}
 }
 
 func (s *WebSocketWrapper) writeLoop() {
