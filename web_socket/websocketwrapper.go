@@ -117,6 +117,7 @@ type WebSocketWrapper struct {
 	writeLoopDone chan struct{}
 	writeIsWorked atomic.Bool
 	loopStarted   chan struct{}
+	loopStopped   chan struct{}
 	readMu        sync.Mutex
 	writeMu       sync.Mutex
 	sendQueue     chan WriteEvent
@@ -152,6 +153,7 @@ func NewWebSocketWrapper(conn *websocket.Conn, sendQueueSize ...int) *WebSocketW
 		subscribers:        make(map[int]subscriberMeta),
 		doneChan:           make(chan struct{}),
 		loopStarted:        make(chan struct{}),
+		loopStopped:        make(chan struct{}),
 		readTimeout:        nil,
 		writeTimeout:       nil,
 		pingHandler:        nil,
@@ -160,6 +162,12 @@ func NewWebSocketWrapper(conn *websocket.Conn, sendQueueSize ...int) *WebSocketW
 		logger:             nil,
 		remoteCloseHandler: nil,
 		stopOnce:           sync.Once{},
+	}
+}
+
+func (s *WebSocketWrapper) checkLoops() {
+	if !s.readIsWorked.Load() && !s.writeIsWorked.Load() {
+		close(s.loopStopped) // Signal that both loops have finished
 	}
 }
 
@@ -214,14 +222,11 @@ func (s *WebSocketWrapper) Open() {
 	}()
 }
 
-func (s *WebSocketWrapper) checkLoops() {
-	if !s.readIsWorked.Load() && !s.writeIsWorked.Load() {
-		close(s.doneChan) // Signal that both loops have finished
-	}
-}
-
 func (s *WebSocketWrapper) Close() {
 	s.stopOnce.Do(func() {
+		go func() {
+			s.checkLoops()
+		}()
 		s.isClosed.Store(true)
 		close(s.doneChan)
 

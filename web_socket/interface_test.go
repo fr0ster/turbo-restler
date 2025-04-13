@@ -180,3 +180,32 @@ func TestWebSocketInterface_Logger(t *testing.T) {
 		t.Fatal("Logger was not called")
 	}
 }
+
+func TestWebSocketInterface_Reopen(t *testing.T) {
+	ws := newTestWS(t)
+	defer func() {
+		ws.Close()
+		ok := ws.WaitAllLoops(1 * time.Second)
+		require.True(t, ok, "Loops did not finish in time")
+		<-ws.Done()
+	}()
+
+	recv := make(chan string, 1)
+	ws.Subscribe(func(evt web_socket.MessageEvent) {
+		if evt.Kind == web_socket.KindData {
+			recv <- string(evt.Body)
+		}
+	})
+
+	err := ws.Send(web_socket.WriteEvent{
+		Body: []byte("hello"),
+	})
+	require.NoError(t, err)
+
+	select {
+	case msg := <-recv:
+		require.Equal(t, "hello", msg)
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for message")
+	}
+}

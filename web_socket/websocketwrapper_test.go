@@ -689,6 +689,7 @@ func TestHTimeOuts(t *testing.T) {
 
 	sw := web_socket.NewWebSocketWrapper(conn)
 	sw.Open()
+	<-sw.Started()
 
 	sw.SetReadTimeout(1 * time.Second)
 	sw.SetWriteTimeout(1 * time.Second)
