@@ -1,7 +1,6 @@
 package web_socket_test
 
 import (
-	"fmt"
 	"net/http"
 	"testing"
 	"time"
@@ -22,19 +21,6 @@ func newTestWS(t *testing.T) web_socket.WebSocketInterface {
 	ws := web_socket.NewWebSocketWrapper(conn)
 	ws.Open()
 	return ws
-}
-
-func waitUntilResponds(u string, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		conn, _, err := websocket.DefaultDialer.Dial(u, nil)
-		if err == nil {
-			_ = conn.Close()
-			return nil
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	return fmt.Errorf("server did not respond in time at %s", u)
 }
 
 func echoHandler(w http.ResponseWriter, r *http.Request) {

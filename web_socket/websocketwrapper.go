@@ -325,10 +325,6 @@ func (s *WebSocketWrapper) GetWriter() WebApiWriter {
 func (s *WebSocketWrapper) readLoop() {
 	s.readIsWorked.Store(true)
 	for {
-		if s.readTimeout != nil {
-			s.conn.SetReadDeadline(time.Now().Add(*s.readTimeout))
-		}
-
 		select {
 		case <-s.doneChan:
 			s.readIsWorked.Store(false)
@@ -490,19 +486,11 @@ func (s *WebSocketWrapper) emit(evt MessageEvent) {
 }
 
 func (s *WebSocketWrapper) IsReadLoopPaused() bool {
-	if s.readIsWorked.Load() {
-		return true
-	} else {
-		return false
-	}
+	return !s.readIsWorked.Load()
 }
 
 func (s *WebSocketWrapper) IsWriteLoopPaused() bool {
-	if s.writeIsWorked.Load() {
-		return true
-	} else {
-		return false
-	}
+	return !s.writeIsWorked.Load()
 }
 
 func (s *WebSocketWrapper) PauseLoops() {
