@@ -158,6 +158,11 @@ func (s *WebSocketWrapper) Close() {
 	s.stopOnce.Do(func() {
 		close(s.doneChan)
 		s.SetMessageLogger(nil)
+		s.SetPingHandler(nil)
+		s.SetPongHandler(nil)
+		s.SetCloseHandler(nil)
+		s.readTimeout = nil
+		s.writeTimeout = nil
 		s.conn.SetPingHandler(nil)
 		s.conn.SetPongHandler(nil)
 		s.conn.SetCloseHandler(nil)
