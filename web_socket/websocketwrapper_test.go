@@ -696,7 +696,71 @@ func TestHTimeOuts(t *testing.T) {
 	sw.Close()
 	<-sw.Done()
 }
+func TestReconnect(t *testing.T) {
+	u, cleanup := StartWebSocketTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, _ := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+		done := r.Context().Done()
+		for {
+			select {
+			case <-done:
+				return
+			default:
+				type_, msg, err := conn.ReadMessage()
+				if err != nil {
+					return
+				}
+				_ = conn.WriteMessage(type_, msg)
+			}
+		}
+	}))
+	defer cleanup()
 
-func init() {
-	fmt.Println(">>> TEST INIT CALLED")
+	conn, _, err := websocket.DefaultDialer.Dial(u, nil)
+	require.NoError(t, err)
+
+	sw := web_socket.NewWebSocketWrapper(conn)
+	sw.SetMessageLogger(func(evt web_socket.LogRecord) {
+		if evt.Err != nil {
+			fmt.Println(">>> ERROR:", evt.Err)
+		} else {
+			fmt.Println(">>> MESSAGE:", string(evt.Body))
+		}
+	})
+	sw.Open()
+	errCh := make(chan error, 1)
+
+	select {
+	case <-sw.Started():
+	case err := <-errCh:
+		t.Fatal(err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("did not receive message")
+		return
+	}
+
+	sw.Subscribe(func(evt web_socket.MessageEvent) {
+		if evt.Error != nil {
+			errCh <- evt.Error
+			return
+		}
+		if string(evt.Body) != "hello" {
+			errCh <- fmt.Errorf("expected 'hello', got '%s'", string(evt.Body))
+			return
+		}
+	})
+
+	require.NoError(t, sw.Send(web_socket.WriteEvent{Body: []byte("hello")}))
+
+	time.Sleep(100 * time.Millisecond)
+
+	sw.Close()
+
+	select {
+	case <-sw.Done():
+	case err := <-errCh:
+		t.Fatal(err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("did not receive message")
+		return
+	}
 }

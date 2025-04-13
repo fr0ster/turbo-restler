@@ -116,6 +116,7 @@ type WebSocketWrapper struct {
 	readIsWorked  atomic.Bool
 	writeLoopDone chan struct{}
 	writeIsWorked atomic.Bool
+	loopStarted   chan struct{}
 	readMu        sync.Mutex
 	writeMu       sync.Mutex
 	sendQueue     chan WriteEvent
@@ -150,6 +151,7 @@ func NewWebSocketWrapper(conn *websocket.Conn, sendQueueSize ...int) *WebSocketW
 		sendQueue:          make(chan WriteEvent, sendQueueSize[0]),
 		subscribers:        make(map[int]subscriberMeta),
 		doneChan:           make(chan struct{}),
+		loopStarted:        make(chan struct{}),
 		readTimeout:        nil,
 		writeTimeout:       nil,
 		pingHandler:        nil,
@@ -192,12 +194,30 @@ func (s *WebSocketWrapper) Open() {
 	go func() {
 		s.readLoop()
 		close(readDone)
+		s.checkLoops()
 	}()
 
 	go func() {
 		s.writeLoop()
 		close(writeDone)
+		s.checkLoops()
 	}()
+
+	go func() {
+		for {
+			if s.readIsWorked.Load() && s.writeIsWorked.Load() {
+				close(s.loopStarted) // Signal that both loops have started
+				return
+			}
+			time.Sleep(10 * time.Millisecond) // Periodically check the state of the loops
+		}
+	}()
+}
+
+func (s *WebSocketWrapper) checkLoops() {
+	if !s.readIsWorked.Load() && !s.writeIsWorked.Load() {
+		close(s.doneChan) // Signal that both loops have finished
+	}
 }
 
 func (s *WebSocketWrapper) Close() {
@@ -268,6 +288,10 @@ func (s *WebSocketWrapper) Unsubscribe(id int) {
 
 func (s *WebSocketWrapper) Done() <-chan struct{} {
 	return s.doneChan
+}
+
+func (s *WebSocketWrapper) Started() <-chan struct{} {
+	return s.loopStarted
 }
 
 func (s *WebSocketWrapper) SetPingHandler(f func(string) error) {
