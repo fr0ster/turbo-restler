@@ -1,7 +1,9 @@
 package web_socket
 
 import (
+	"errors"
 	"fmt"
+	"net"
 	"runtime/debug"
 	"sync"
 	"sync/atomic"
@@ -104,9 +106,10 @@ type WebSocketWrapper struct {
 	readTimeout  *time.Duration
 	writeTimeout *time.Duration
 
-	pingHandler  func(string, ControlWriter) error
-	pongHandler  func(string, ControlWriter) error
-	closeHandler func(int, string, ControlWriter) error
+	pingHandler        func(string, ControlWriter) error
+	pongHandler        func(string, ControlWriter) error
+	closeHandler       func(int, string, ControlWriter) error
+	remoteCloseHandler func(error)
 
 	controlWriter ControlWriter
 	stopOnce      sync.Once
@@ -157,21 +160,36 @@ func (s *WebSocketWrapper) Open() {
 func (s *WebSocketWrapper) Close() {
 	s.stopOnce.Do(func() {
 		close(s.doneChan)
-		s.SetMessageLogger(nil)
-		s.SetPingHandler(nil)
-		s.SetPongHandler(nil)
-		s.SetCloseHandler(nil)
-		s.readTimeout = nil
-		s.writeTimeout = nil
+
+		s.clearHandlers()
+		_ = s.conn.SetWriteDeadline(time.Now().Add(time.Second))
 		_ = s.conn.WriteControl(
 			websocket.CloseMessage,
 			websocket.FormatCloseMessage(websocket.CloseNormalClosure, "bye"),
 			time.Now().Add(time.Second))
 		_ = s.conn.Close()
-		s.conn.SetPingHandler(nil)
-		s.conn.SetPongHandler(nil)
-		s.conn.SetCloseHandler(nil)
 	})
+}
+
+func (s *WebSocketWrapper) Halt() {
+	s.stopOnce.Do(func() {
+		close(s.doneChan)
+
+		s.clearHandlers()
+		_ = s.conn.Close()
+	})
+}
+
+func (s *WebSocketWrapper) clearHandlers() {
+	s.SetMessageLogger(nil)
+	s.SetPingHandler(nil)
+	s.SetPongHandler(nil)
+	s.SetCloseHandler(nil)
+	s.conn.SetPingHandler(nil)
+	s.conn.SetPongHandler(nil)
+	s.conn.SetCloseHandler(nil)
+	s.readTimeout = nil
+	s.writeTimeout = nil
 }
 
 func (s *WebSocketWrapper) Send(msg WriteEvent) error {
@@ -219,6 +237,10 @@ func (s *WebSocketWrapper) SetCloseHandler(f func(int, string, ControlWriter) er
 	s.closeHandler = f
 }
 
+func (s *WebSocketWrapper) SetRemoteCloseHandler(f func(error)) {
+	s.remoteCloseHandler = f
+}
+
 func (s *WebSocketWrapper) SetMessageLogger(f func(LogRecord)) {
 	s.subMu.Lock()
 	defer s.subMu.Unlock()
@@ -256,12 +278,20 @@ func (s *WebSocketWrapper) readLoop() {
 		if s.logger != nil {
 			s.logger(LogRecord{Op: OpReceive, Body: msg, Err: err})
 		}
-		if err != nil {
-			s.emit(MessageEvent{Kind: KindError, Error: err})
-			s.Close()
+		if websocket.IsCloseError(err,
+			websocket.CloseNormalClosure,
+			websocket.CloseGoingAway,
+			websocket.ClosePolicyViolation,
+			websocket.CloseAbnormalClosure) ||
+			errors.Is(err, net.ErrClosed) {
+			if s.remoteCloseHandler != nil {
+				s.remoteCloseHandler(err)
+			}
+			s.Halt()
 			return
-		}
-		if msgType == websocket.TextMessage || msgType == websocket.BinaryMessage {
+		} else if err != nil {
+			s.emit(MessageEvent{Kind: KindError, Error: err})
+		} else if msgType == websocket.TextMessage || msgType == websocket.BinaryMessage {
 			s.emit(MessageEvent{Kind: KindData, Body: msg})
 		} else {
 			s.emit(MessageEvent{Kind: KindControl, Body: msg})
@@ -286,6 +316,17 @@ func (s *WebSocketWrapper) writeLoop() {
 			}
 			if s.logger != nil {
 				s.logger(LogRecord{Op: OpSend, Body: msg.Body, Err: err})
+			}
+			if websocket.IsCloseError(err,
+				websocket.CloseNormalClosure,
+				websocket.CloseGoingAway,
+				websocket.ClosePolicyViolation,
+				websocket.CloseAbnormalClosure) {
+				if s.remoteCloseHandler != nil {
+					s.remoteCloseHandler(err)
+				}
+				s.Halt()
+				return
 			}
 			if err != nil {
 				s.Close()

@@ -399,9 +399,12 @@ func TestNoPongServerClosesConnection(t *testing.T) {
 	sw.Open()
 
 	done := make(chan struct{})
+	var once sync.Once
 	sw.Subscribe(func(evt web_socket.MessageEvent) {
 		if evt.Error != nil {
-			close(done)
+			once.Do(func() {
+				close(done)
+			})
 		}
 	})
 
@@ -442,6 +445,7 @@ func TestWebSocketWrapper_GetReaderWriter(t *testing.T) {
 	reader := wrapper.GetReader()
 	writer := wrapper.GetWriter()
 
+	writer.SetWriteDeadline(time.Now().Add(2 * time.Second))
 	err = writer.WriteMessage(websocket.TextMessage, []byte("test-payload"))
 	assert.NoError(t, err)
 
