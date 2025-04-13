@@ -87,14 +87,14 @@ func TestWebSocketInterface_HandlersAndDone(t *testing.T) {
 	ws := newTestWS(t)
 
 	pongHandled := make(chan struct{})
-	ws.SetPingHandler(func(data string, w web_socket.ControlWriter) error {
-		return w.WriteControl(websocket.PongMessage, []byte(data), time.Now().Add(time.Second))
+	ws.SetPingHandler(func(data string) error {
+		return ws.GetControl().WriteControl(websocket.PongMessage, []byte(data), time.Now().Add(time.Second))
 	})
-	ws.SetPongHandler(func(data string, w web_socket.ControlWriter) error {
+	ws.SetPongHandler(func(data string) error {
 		close(pongHandled)
 		return nil
 	})
-	ws.SetCloseHandler(func(code int, text string, w web_socket.ControlWriter) error {
+	ws.SetCloseHandler(func(code int, text string) error {
 		return nil
 	})
 
@@ -125,11 +125,11 @@ func TestWebSocketInterface_GetReaderWriter(t *testing.T) {
 		<-ws.Done()
 	}()
 
-	ws.GetWriter().SetWriteDeadline(time.Now().Add(time.Second))
+	ws.SetWriteTimeout(time.Second)
 	err := ws.GetWriter().WriteMessage(websocket.TextMessage, []byte("direct"))
 	require.NoError(t, err)
 
-	ws.GetReader().SetReadDeadline(time.Now().Add(time.Second))
+	ws.SetReadTimeout(time.Second)
 	_, data, err := ws.GetReader().ReadMessage()
 	require.NoError(t, err)
 	require.Equal(t, "direct", string(data))

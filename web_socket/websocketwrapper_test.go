@@ -178,8 +178,8 @@ func TestPingPongTimeoutClose(t *testing.T) {
 	// ✅ Channel to verify that Pong was sent
 	pongSent := make(chan struct{})
 
-	sw.SetPingHandler(func(s string, w web_socket.ControlWriter) error {
-		err := w.WriteControl(websocket.PongMessage, []byte(s), time.Now().Add(time.Second))
+	sw.SetPingHandler(func(s string) error {
+		err := sw.GetControl().WriteControl(websocket.PongMessage, []byte(s), time.Now().Add(time.Second))
 		if err == nil {
 			fmt.Println("✅ Client sent Pong:", s)
 			close(pongSent)
@@ -324,8 +324,8 @@ func TestPingPongWithTimeoutEnforcedByServer(t *testing.T) {
 			fmt.Println(">>> MESSAGE:", string(evt.Body))
 		}
 	})
-	sw.SetPingHandler(func(s string, w web_socket.ControlWriter) error {
-		return w.WriteControl(websocket.PongMessage, []byte(s), time.Now().Add(1000*time.Millisecond))
+	sw.SetPingHandler(func(s string) error {
+		return sw.GetControl().WriteControl(websocket.PongMessage, []byte(s), time.Now().Add(1000*time.Millisecond))
 	})
 	sw.Open()
 	time.Sleep(500 * time.Millisecond)
@@ -445,7 +445,6 @@ func TestWebSocketWrapper_GetReaderWriter(t *testing.T) {
 	reader := wrapper.GetReader()
 	writer := wrapper.GetWriter()
 
-	writer.SetWriteDeadline(time.Now().Add(2 * time.Second))
 	err = writer.WriteMessage(websocket.TextMessage, []byte("test-payload"))
 	assert.NoError(t, err)
 

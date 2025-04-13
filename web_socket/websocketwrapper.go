@@ -77,18 +77,28 @@ type WriteEvent struct {
 	Done  SendResult
 }
 
-type ControlWriter interface {
-	WriteControl(messageType int, data []byte, deadline time.Time) error
+type wrappedControl struct {
+	wrapper *WebSocketWrapper
 }
 
-type WebApiWriter interface {
-	SetWriteDeadline(t time.Time) error
-	WriteMessage(messageType int, data []byte) error
+func (w *wrappedControl) WriteControl(messageType int, data []byte, deadline time.Time) error {
+	return w.wrapper.conn.WriteControl(messageType, data, deadline)
 }
 
-type WebApiReader interface {
-	SetReadDeadline(t time.Time) error
-	ReadMessage() (messageType int, data []byte, err error)
+type wrappedReader struct {
+	wrapper *WebSocketWrapper
+}
+
+func (r *wrappedReader) ReadMessage() (int, []byte, error) {
+	return r.wrapper.readMessage()
+}
+
+type wrappedWriter struct {
+	wrapper *WebSocketWrapper
+}
+
+func (r *wrappedWriter) WriteMessage(messageType int, data []byte) error {
+	return r.wrapper.writeMessage(messageType, data)
 }
 
 type subscriberMeta struct {
@@ -98,6 +108,9 @@ type subscriberMeta struct {
 
 type WebSocketWrapper struct {
 	conn        *websocket.Conn
+	isClosed    atomic.Bool
+	readMu      sync.Mutex
+	writeMu     sync.Mutex
 	sendQueue   chan WriteEvent
 	subscribers map[int]subscriberMeta
 	subMu       sync.RWMutex
@@ -106,9 +119,9 @@ type WebSocketWrapper struct {
 	readTimeout  *time.Duration
 	writeTimeout *time.Duration
 
-	pingHandler        func(string, ControlWriter) error
-	pongHandler        func(string, ControlWriter) error
-	closeHandler       func(int, string, ControlWriter) error
+	pingHandler        func(string) error
+	pongHandler        func(string) error
+	closeHandler       func(int, string) error
 	remoteCloseHandler func(error)
 
 	controlWriter ControlWriter
@@ -123,32 +136,44 @@ func NewWebSocketWrapper(conn *websocket.Conn, sendQueueSize ...int) *WebSocketW
 		sendQueueSize = append(sendQueueSize, 64)
 	}
 	return &WebSocketWrapper{
-		conn:          conn,
-		sendQueue:     make(chan WriteEvent, sendQueueSize[0]),
-		subscribers:   make(map[int]subscriberMeta),
-		doneChan:      make(chan struct{}),
-		controlWriter: &wsControl{conn},
+		conn:               conn,
+		readMu:             sync.Mutex{},
+		writeMu:            sync.Mutex{},
+		subMu:              sync.RWMutex{},
+		subCounter:         atomic.Int32{},
+		sendQueue:          make(chan WriteEvent, sendQueueSize[0]),
+		subscribers:        make(map[int]subscriberMeta),
+		doneChan:           make(chan struct{}),
+		controlWriter:      &wsControl{conn},
+		readTimeout:        nil,
+		writeTimeout:       nil,
+		pingHandler:        nil,
+		pongHandler:        nil,
+		closeHandler:       nil,
+		logger:             nil,
+		remoteCloseHandler: nil,
+		stopOnce:           sync.Once{},
 	}
 }
 
 func (s *WebSocketWrapper) Open() {
 	s.conn.SetPingHandler(func(appData string) error {
 		if s.pingHandler != nil {
-			return s.pingHandler(appData, s.controlWriter)
+			return s.pingHandler(appData)
 		}
-		return s.controlWriter.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(time.Second))
+		return s.writeControl(websocket.PongMessage, []byte(appData), time.Now().Add(time.Second))
 	})
 
 	s.conn.SetPongHandler(func(appData string) error {
 		if s.pongHandler != nil {
-			return s.pongHandler(appData, s.controlWriter)
+			return s.pongHandler(appData)
 		}
 		return nil
 	})
 
 	s.conn.SetCloseHandler(func(code int, text string) error {
 		if s.closeHandler != nil {
-			return s.closeHandler(code, text, s.controlWriter)
+			return s.closeHandler(code, text)
 		}
 		return nil
 	})
@@ -225,15 +250,15 @@ func (s *WebSocketWrapper) Done() <-chan struct{} {
 	return s.doneChan
 }
 
-func (s *WebSocketWrapper) SetPingHandler(f func(string, ControlWriter) error) {
+func (s *WebSocketWrapper) SetPingHandler(f func(string) error) {
 	s.pingHandler = f
 }
 
-func (s *WebSocketWrapper) SetPongHandler(f func(string, ControlWriter) error) {
+func (s *WebSocketWrapper) SetPongHandler(f func(string) error) {
 	s.pongHandler = f
 }
 
-func (s *WebSocketWrapper) SetCloseHandler(f func(int, string, ControlWriter) error) {
+func (s *WebSocketWrapper) SetCloseHandler(f func(int, string) error) {
 	s.closeHandler = f
 }
 
@@ -261,12 +286,20 @@ func (s *WebSocketWrapper) SetWriteTimeout(writeTimeout time.Duration) {
 	*s.writeTimeout = writeTimeout
 }
 
+func (s *WebSocketWrapper) GetControl() ControlWriter {
+	return &wrappedControl{wrapper: s}
+}
+
+func (s *WebSocketWrapper) writeControl(messageType int, data []byte, deadline time.Time) error {
+	return s.conn.WriteControl(messageType, data, deadline)
+}
+
 func (s *WebSocketWrapper) GetReader() WebApiReader {
-	return s.conn
+	return &wrappedReader{wrapper: s}
 }
 
 func (s *WebSocketWrapper) GetWriter() WebApiWriter {
-	return s.conn
+	return &wrappedWriter{wrapper: s}
 }
 
 func (s *WebSocketWrapper) readLoop() {
@@ -274,24 +307,28 @@ func (s *WebSocketWrapper) readLoop() {
 		if s.readTimeout != nil {
 			s.conn.SetReadDeadline(time.Now().Add(*s.readTimeout))
 		}
-		msgType, msg, err := s.conn.ReadMessage()
+
+		select {
+		case <-s.doneChan:
+			return
+		default:
+			// Continue to ReadMessage
+		}
+
+		msgType, msg, err := s.readMessage()
 		if s.logger != nil {
 			s.logger(LogRecord{Op: OpReceive, Body: msg, Err: err})
 		}
-		if websocket.IsCloseError(err,
-			websocket.CloseNormalClosure,
-			websocket.CloseGoingAway,
-			websocket.ClosePolicyViolation,
-			websocket.CloseAbnormalClosure) ||
-			errors.Is(err, net.ErrClosed) {
-			if s.remoteCloseHandler != nil {
-				s.remoteCloseHandler(err)
-			}
-			s.Halt()
-			return
-		} else if err != nil {
+
+		if err != nil {
 			s.emit(MessageEvent{Kind: KindError, Error: err})
-		} else if msgType == websocket.TextMessage || msgType == websocket.BinaryMessage {
+			if s.isClosed.Load() {
+				return
+			}
+			continue
+		}
+
+		if msgType == websocket.TextMessage || msgType == websocket.BinaryMessage {
 			s.emit(MessageEvent{Kind: KindData, Body: msg})
 		} else {
 			s.emit(MessageEvent{Kind: KindControl, Body: msg})
@@ -299,15 +336,38 @@ func (s *WebSocketWrapper) readLoop() {
 	}
 }
 
+func (s *WebSocketWrapper) readMessage() (int, []byte, error) {
+	s.readMu.Lock()
+	defer s.readMu.Unlock()
+
+	if s.isClosed.Load() {
+		return 0, nil, errors.New("connection already closed")
+	}
+
+	if s.readTimeout != nil {
+		s.conn.SetReadDeadline(time.Now().Add(*s.readTimeout))
+	}
+
+	msgType, msg, err := s.conn.ReadMessage()
+
+	if websocket.IsCloseError(err,
+		websocket.CloseNormalClosure,
+		websocket.CloseGoingAway,
+		websocket.ClosePolicyViolation,
+		websocket.CloseAbnormalClosure) || errors.Is(err, net.ErrClosed) {
+		s.Halt()
+		return msgType, msg, err
+	}
+
+	return msgType, msg, err
+}
+
 func (s *WebSocketWrapper) writeLoop() {
 	for {
 		select {
 		case msg := <-s.sendQueue:
-			if s.writeTimeout != nil {
-				s.conn.SetWriteDeadline(time.Now().Add(*s.writeTimeout))
-			}
-			s.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-			err := s.conn.WriteMessage(websocket.TextMessage, msg.Body)
+			err := s.writeMessage(websocket.TextMessage, msg.Body)
+
 			if msg.Await != nil {
 				msg.Await(err)
 			}
@@ -317,25 +377,40 @@ func (s *WebSocketWrapper) writeLoop() {
 			if s.logger != nil {
 				s.logger(LogRecord{Op: OpSend, Body: msg.Body, Err: err})
 			}
-			if websocket.IsCloseError(err,
-				websocket.CloseNormalClosure,
-				websocket.CloseGoingAway,
-				websocket.ClosePolicyViolation,
-				websocket.CloseAbnormalClosure) {
-				if s.remoteCloseHandler != nil {
-					s.remoteCloseHandler(err)
-				}
-				s.Halt()
-				return
-			}
 			if err != nil {
-				s.Close()
 				return
 			}
 		case <-s.doneChan:
 			return
 		}
 	}
+}
+
+func (s *WebSocketWrapper) writeMessage(msgType int, msg []byte) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+
+	if s.isClosed.Load() {
+		return errors.New("connection is closed")
+	}
+
+	if s.writeTimeout != nil {
+		_ = s.conn.SetWriteDeadline(time.Now().Add(*s.writeTimeout))
+	}
+
+	err := s.conn.WriteMessage(msgType, msg)
+
+	if websocket.IsCloseError(err,
+		websocket.CloseNormalClosure,
+		websocket.CloseGoingAway,
+		websocket.ClosePolicyViolation,
+		websocket.CloseAbnormalClosure) ||
+		errors.Is(err, net.ErrClosed) {
+		s.Halt()
+		return err
+	}
+
+	return err
 }
 
 func (s *WebSocketWrapper) emit(evt MessageEvent) {
