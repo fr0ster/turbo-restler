@@ -189,7 +189,7 @@ func TestPingPongTimeoutClose(t *testing.T) {
 
 	sw.Open()
 
-	// ✅ Очікуємо, поки Pong буде відправлено (тобто Ping отримано)
+	// ✅ Waiting for Pong to be sent (i.e., Ping received)
 	select {
 	case <-pongSent:
 	case <-time.After(2 * time.Second):
