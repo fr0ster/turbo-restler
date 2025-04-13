@@ -90,7 +90,10 @@ type wrappedReader struct {
 }
 
 func (r *wrappedReader) ReadMessage() (int, []byte, error) {
-	return r.wrapper.readMessage()
+	// if r.wrapper.IsLoopStarted() {
+	// 	return 0, nil, errors.New("read loop already started")
+	// }
+	return r.wrapper.conn.ReadMessage()
 }
 
 type wrappedWriter struct {
@@ -98,7 +101,7 @@ type wrappedWriter struct {
 }
 
 func (r *wrappedWriter) WriteMessage(messageType int, data []byte) error {
-	return r.wrapper.writeMessage(messageType, data)
+	return r.wrapper.conn.WriteMessage(messageType, data)
 }
 
 type subscriberMeta struct {
@@ -107,15 +110,18 @@ type subscriberMeta struct {
 }
 
 type WebSocketWrapper struct {
-	conn         *websocket.Conn
-	isClosed     atomic.Bool
-	readLoopDone chan struct{}
-	readMu       sync.Mutex
-	writeMu      sync.Mutex
-	sendQueue    chan WriteEvent
-	subscribers  map[int]subscriberMeta
-	subMu        sync.RWMutex
-	subCounter   atomic.Int32
+	conn          *websocket.Conn
+	isClosed      atomic.Bool
+	readLoopDone  chan struct{}
+	readIsWorked  atomic.Bool
+	writeLoopDone chan struct{}
+	writeIsWorked atomic.Bool
+	readMu        sync.Mutex
+	writeMu       sync.Mutex
+	sendQueue     chan WriteEvent
+	subscribers   map[int]subscriberMeta
+	subMu         sync.RWMutex
+	subCounter    atomic.Int32
 
 	readTimeout  *time.Duration
 	writeTimeout *time.Duration
@@ -125,9 +131,8 @@ type WebSocketWrapper struct {
 	closeHandler       func(int, string) error
 	remoteCloseHandler func(error)
 
-	controlWriter ControlWriter
-	stopOnce      sync.Once
-	doneChan      chan struct{}
+	stopOnce sync.Once
+	doneChan chan struct{}
 
 	logger func(LogRecord)
 }
@@ -145,7 +150,6 @@ func NewWebSocketWrapper(conn *websocket.Conn, sendQueueSize ...int) *WebSocketW
 		sendQueue:          make(chan WriteEvent, sendQueueSize[0]),
 		subscribers:        make(map[int]subscriberMeta),
 		doneChan:           make(chan struct{}),
-		controlWriter:      &wsControl{conn},
 		readTimeout:        nil,
 		writeTimeout:       nil,
 		pingHandler:        nil,
@@ -179,19 +183,26 @@ func (s *WebSocketWrapper) Open() {
 		return nil
 	})
 
-	loopDone := make(chan struct{})
-	s.readLoopDone = loopDone
+	readDone := make(chan struct{})
+	writeDone := make(chan struct{})
 
-	go func(done chan struct{}) {
+	s.readLoopDone = readDone
+	s.writeLoopDone = writeDone
+
+	go func() {
 		s.readLoop()
-		close(done)
-	}(loopDone)
+		close(readDone)
+	}()
 
-	go s.writeLoop()
+	go func() {
+		s.writeLoop()
+		close(writeDone)
+	}()
 }
 
 func (s *WebSocketWrapper) Close() {
 	s.stopOnce.Do(func() {
+		s.isClosed.Store(true)
 		close(s.doneChan)
 
 		s.clearHandlers()
@@ -206,6 +217,7 @@ func (s *WebSocketWrapper) Close() {
 
 func (s *WebSocketWrapper) Halt() {
 	s.stopOnce.Do(func() {
+		s.isClosed.Store(true)
 		close(s.doneChan)
 
 		s.clearHandlers()
@@ -311,6 +323,7 @@ func (s *WebSocketWrapper) GetWriter() WebApiWriter {
 }
 
 func (s *WebSocketWrapper) readLoop() {
+	s.readIsWorked.Store(true)
 	for {
 		if s.readTimeout != nil {
 			s.conn.SetReadDeadline(time.Now().Add(*s.readTimeout))
@@ -318,6 +331,7 @@ func (s *WebSocketWrapper) readLoop() {
 
 		select {
 		case <-s.doneChan:
+			s.readIsWorked.Store(false)
 			return
 		default:
 			// Continue to ReadMessage
@@ -383,6 +397,7 @@ func (s *WebSocketWrapper) WaitReadLoop(timeout time.Duration) bool {
 }
 
 func (s *WebSocketWrapper) writeLoop() {
+	s.writeIsWorked.Store(true)
 	for {
 		select {
 		case msg := <-s.sendQueue:
@@ -401,6 +416,7 @@ func (s *WebSocketWrapper) writeLoop() {
 				return
 			}
 		case <-s.doneChan:
+			s.writeIsWorked.Store(false)
 			return
 		}
 	}
@@ -433,6 +449,38 @@ func (s *WebSocketWrapper) writeMessage(msgType int, msg []byte) error {
 	return err
 }
 
+func (s *WebSocketWrapper) WaitWriteLoop(timeout time.Duration) bool {
+	if s.writeLoopDone == nil {
+		return true
+	}
+	select {
+	case <-s.writeLoopDone:
+		return true
+	case <-time.After(timeout):
+		return false
+	}
+}
+
+func (s *WebSocketWrapper) WaitAllLoops(timeout time.Duration) bool {
+	readDone := s.readLoopDone
+	writeDone := s.writeLoopDone
+
+	timeoutCh := time.After(timeout)
+
+	for readDone != nil || writeDone != nil {
+		select {
+		case <-readDone:
+			readDone = nil
+		case <-writeDone:
+			writeDone = nil
+		case <-timeoutCh:
+			return false
+		}
+	}
+
+	return true
+}
+
 func (s *WebSocketWrapper) emit(evt MessageEvent) {
 	s.subMu.RLock()
 	defer s.subMu.RUnlock()
@@ -441,10 +489,30 @@ func (s *WebSocketWrapper) emit(evt MessageEvent) {
 	}
 }
 
-type wsControl struct {
-	conn *websocket.Conn
+func (s *WebSocketWrapper) IsReadLoopPaused() bool {
+	if s.readIsWorked.Load() {
+		return true
+	} else {
+		return false
+	}
 }
 
-func (w *wsControl) WriteControl(messageType int, data []byte, deadline time.Time) error {
-	return w.conn.WriteControl(messageType, data, deadline)
+func (s *WebSocketWrapper) IsWriteLoopPaused() bool {
+	if s.writeIsWorked.Load() {
+		return true
+	} else {
+		return false
+	}
+}
+
+func (s *WebSocketWrapper) PauseLoops() {
+	s.readMu.Lock()
+	s.writeMu.Lock()
+	s.readIsWorked.Store(false)
+}
+
+func (s *WebSocketWrapper) ResumeLoops() {
+	s.writeMu.Unlock()
+	s.readMu.Unlock()
+	s.readIsWorked.Store(true)
 }

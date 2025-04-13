@@ -72,4 +72,16 @@ type WebSocketInterface interface {
 
 	// WaitReadLoop waits for the read loop to finish.
 	WaitReadLoop(timeout time.Duration) bool
+
+	// WaitWriteLoop waits for the write loop to finish.
+	WaitWriteLoop(timeout time.Duration) bool
+
+	// WaitAllLoops waits for all loops (read and write) to finish.
+	WaitAllLoops(timeout time.Duration) bool
+
+	// PauseLoops pauses the read and write loops.
+	PauseLoops()
+
+	// ResumeLoops resumes the read and write loops.
+	ResumeLoops()
 }

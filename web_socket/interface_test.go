@@ -1,6 +1,7 @@
 package web_socket_test
 
 import (
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
@@ -23,8 +24,26 @@ func newTestWS(t *testing.T) web_socket.WebSocketInterface {
 	return ws
 }
 
+func waitUntilResponds(u string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		conn, _, err := websocket.DefaultDialer.Dial(u, nil)
+		if err == nil {
+			_ = conn.Close()
+			return nil
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return fmt.Errorf("server did not respond in time at %s", u)
+}
+
 func echoHandler(w http.ResponseWriter, r *http.Request) {
-	conn, _ := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+	conn, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+	if err != nil {
+		return
+	}
+	defer conn.Close()
+
 	for {
 		mt, msg, err := conn.ReadMessage()
 		if err != nil {
@@ -38,6 +57,8 @@ func TestWebSocketInterface_BasicSendReceive(t *testing.T) {
 	ws := newTestWS(t)
 	defer func() {
 		ws.Close()
+		ok := ws.WaitAllLoops(1 * time.Second)
+		require.True(t, ok, "Loops did not finish in time")
 		<-ws.Done()
 	}()
 
@@ -65,6 +86,8 @@ func TestWebSocketInterface_Unsubscribe(t *testing.T) {
 	ws := newTestWS(t)
 	defer func() {
 		ws.Close()
+		ok := ws.WaitAllLoops(1 * time.Second)
+		require.True(t, ok, "Loops did not finish in time")
 		<-ws.Done()
 	}()
 
@@ -85,6 +108,12 @@ func TestWebSocketInterface_Unsubscribe(t *testing.T) {
 
 func TestWebSocketInterface_HandlersAndDone(t *testing.T) {
 	ws := newTestWS(t)
+	defer func() {
+		ws.Close()
+		ok := ws.WaitAllLoops(1 * time.Second)
+		require.True(t, ok, "Loops did not finish in time")
+		<-ws.Done()
+	}()
 
 	pongHandled := make(chan struct{})
 	ws.SetPingHandler(func(data string) error {
@@ -122,15 +151,20 @@ func TestWebSocketInterface_GetReaderWriter(t *testing.T) {
 	ws := newTestWS(t)
 	defer func() {
 		ws.Close()
+		ok := ws.WaitAllLoops(1 * time.Second)
+		require.True(t, ok, "Loops did not finish in time")
 		<-ws.Done()
 	}()
 
+	ws.PauseLoops()
 	ws.SetWriteTimeout(time.Second)
 	err := ws.GetWriter().WriteMessage(websocket.TextMessage, []byte("direct"))
 	require.NoError(t, err)
 
 	ws.SetReadTimeout(time.Second)
 	_, data, err := ws.GetReader().ReadMessage()
+	ws.ResumeLoops()
+
 	require.NoError(t, err)
 	require.Equal(t, "direct", string(data))
 }
@@ -139,6 +173,8 @@ func TestWebSocketInterface_Logger(t *testing.T) {
 	ws := newTestWS(t)
 	defer func() {
 		ws.Close()
+		ok := ws.WaitAllLoops(1 * time.Second)
+		require.True(t, ok, "Loops did not finish in time")
 		<-ws.Done()
 	}()
 
