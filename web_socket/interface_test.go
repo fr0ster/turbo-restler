@@ -125,7 +125,7 @@ func TestWebSocketInterface_GetReaderWriter(t *testing.T) {
 		<-ws.Done()
 	}()
 
-	ws.GetReader().(*websocket.Conn).SetWriteDeadline(time.Now().Add(time.Second))
+	ws.GetWriter().SetWriteDeadline(time.Now().Add(time.Second))
 	err := ws.GetWriter().WriteMessage(websocket.TextMessage, []byte("direct"))
 	require.NoError(t, err)
 

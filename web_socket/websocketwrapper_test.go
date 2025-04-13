@@ -127,16 +127,16 @@ func TestPingPongTimeoutClose(t *testing.T) {
 	u, cleanup := StartWebSocketTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, _ := (&websocket.Upgrader{}).Upgrade(w, r, nil)
 
-		// ✅ Чіткий контроль завершення через контекст
+		// ✅ Explicit termination control via context
 		ctx := r.Context()
 
-		// ✅ Реакція на Pong
+		// ✅ Reaction to Pong
 		conn.SetPongHandler(func(appData string) error {
 			fmt.Println("✅ Server received Pong:", appData)
 			return nil
 		})
 
-		// ✅ Постійне читання для обробки Pong
+		// ✅ Continuous reading to handle Pong
 		go func() {
 			for {
 				select {
@@ -151,7 +151,7 @@ func TestPingPongTimeoutClose(t *testing.T) {
 			}
 		}()
 
-		// ✅ Надсилання Ping
+		// ✅ Sending Ping
 		ticker := time.NewTicker(100 * time.Millisecond)
 		defer ticker.Stop()
 
@@ -169,13 +169,13 @@ func TestPingPongTimeoutClose(t *testing.T) {
 	}))
 	defer cleanup()
 
-	// ✅ Підключення клієнта
+	// ✅ Client connection
 	conn, _, err := websocket.DefaultDialer.Dial(u, nil)
 	require.NoError(t, err)
 
 	sw := web_socket.NewWebSocketWrapper(conn)
 
-	// ✅ Канал для перевірки що Pong відправлено
+	// ✅ Channel to verify that Pong was sent
 	pongSent := make(chan struct{})
 
 	sw.SetPingHandler(func(s string, w web_socket.ControlWriter) error {
@@ -293,7 +293,11 @@ func TestPingPongWithTimeoutEnforcedByServer(t *testing.T) {
 					return
 				case <-ticker.C:
 					if _, _, err := conn.ReadMessage(); err != nil {
-						fmt.Println("❌ Read error (expected on close):", err)
+						if websocket.IsCloseError(err, websocket.CloseNormalClosure) {
+							fmt.Println("🟢 Normal closure received, shutting down server")
+						} else {
+							fmt.Println("❌ Unexpected read error:", err)
+						}
 						return
 					}
 				}

@@ -163,11 +163,14 @@ func (s *WebSocketWrapper) Close() {
 		s.SetCloseHandler(nil)
 		s.readTimeout = nil
 		s.writeTimeout = nil
+		_ = s.conn.WriteControl(
+			websocket.CloseMessage,
+			websocket.FormatCloseMessage(websocket.CloseNormalClosure, "bye"),
+			time.Now().Add(time.Second))
+		_ = s.conn.Close()
 		s.conn.SetPingHandler(nil)
 		s.conn.SetPongHandler(nil)
 		s.conn.SetCloseHandler(nil)
-		_ = s.conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "bye"))
-		_ = s.conn.Close()
 	})
 }
 
