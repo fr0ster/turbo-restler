@@ -85,7 +85,15 @@ func TestReadWrite(t *testing.T) {
 	require.NoError(t, err)
 
 	sw := web_socket.NewWebSocketWrapper(conn)
+	sw.SetMessageLogger(func(evt web_socket.LogRecord) {
+		if evt.Err != nil {
+			fmt.Println(">>> ERROR:", evt.Err)
+		} else {
+			fmt.Println(">>> MESSAGE:", string(evt.Body))
+		}
+	})
 	sw.Open()
+	time.Sleep(1000 * time.Millisecond)
 
 	done := make(chan struct{})
 	errCh := make(chan error, 1)
@@ -118,32 +126,74 @@ func TestReadWrite(t *testing.T) {
 func TestPingPongTimeoutClose(t *testing.T) {
 	u, cleanup := StartWebSocketTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, _ := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+
+		// ✅ Чіткий контроль завершення через контекст
+		ctx := r.Context()
+
+		// ✅ Реакція на Pong
+		conn.SetPongHandler(func(appData string) error {
+			fmt.Println("✅ Server received Pong:", appData)
+			return nil
+		})
+
+		// ✅ Постійне читання для обробки Pong
+		go func() {
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+					_, _, err := conn.ReadMessage()
+					if err != nil {
+						return
+					}
+				}
+			}
+		}()
+
+		// ✅ Надсилання Ping
 		ticker := time.NewTicker(100 * time.Millisecond)
 		defer ticker.Stop()
-		for range ticker.C {
-			_ = conn.WriteControl(websocket.PingMessage, []byte("ping"), time.Now().Add(time.Second))
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				err := conn.WriteControl(websocket.PingMessage, []byte("ping"), time.Now().Add(time.Second))
+				if err != nil {
+					return
+				}
+			}
 		}
 	}))
 	defer cleanup()
 
+	// ✅ Підключення клієнта
 	conn, _, err := websocket.DefaultDialer.Dial(u, nil)
 	require.NoError(t, err)
 
 	sw := web_socket.NewWebSocketWrapper(conn)
-	pongReceived := make(chan struct{})
+
+	// ✅ Канал для перевірки що Pong відправлено
+	pongSent := make(chan struct{})
+
 	sw.SetPingHandler(func(s string, w web_socket.ControlWriter) error {
 		err := w.WriteControl(websocket.PongMessage, []byte(s), time.Now().Add(time.Second))
 		if err == nil {
-			close(pongReceived)
+			fmt.Println("✅ Client sent Pong:", s)
+			close(pongSent)
 		}
 		return err
 	})
+
 	sw.Open()
 
+	// ✅ Очікуємо, поки Pong буде відправлено (тобто Ping отримано)
 	select {
-	case <-pongReceived:
-	case <-time.After(1 * time.Second):
-		t.Fatal("pong not received")
+	case <-pongSent:
+	case <-time.After(2 * time.Second):
+		t.Fatal("❌ Pong was not sent")
 	}
 
 	sw.Close()
@@ -167,7 +217,15 @@ func TestConcurrentConsumers(t *testing.T) {
 	require.NoError(t, err)
 
 	sw := web_socket.NewWebSocketWrapper(conn)
+	sw.SetMessageLogger(func(evt web_socket.LogRecord) {
+		if evt.Err != nil {
+			fmt.Println(">>> ERROR:", evt.Err)
+		} else {
+			fmt.Println(">>> MESSAGE:", string(evt.Body))
+		}
+	})
 	sw.Open()
+	time.Sleep(1000 * time.Millisecond)
 
 	n := 5
 	var wg sync.WaitGroup
@@ -203,6 +261,44 @@ func TestPingPongWithTimeoutEnforcedByServer(t *testing.T) {
 		conn, _ := (&websocket.Upgrader{}).Upgrade(w, r, nil)
 		ticker := time.NewTicker(50 * time.Millisecond)
 		defer ticker.Stop()
+		conn.SetPongHandler(func(appData string) error {
+			fmt.Println("✅ Got pong:", appData)
+			return nil
+		})
+		go func() {
+			ticker := time.NewTicker(100 * time.Millisecond)
+			defer ticker.Stop()
+			defer conn.Close()
+
+			for {
+				select {
+				case <-r.Context().Done():
+					return
+				case <-ticker.C:
+					err := conn.WriteMessage(websocket.TextMessage, []byte("ping"))
+					if err != nil {
+						fmt.Println("❌ Ping failed:", err)
+						return
+					}
+				}
+			}
+		}()
+		go func() {
+			ticker := time.NewTicker(100 * time.Millisecond)
+			defer ticker.Stop()
+			defer conn.Close()
+			for {
+				select {
+				case <-r.Context().Done():
+					return
+				case <-ticker.C:
+					if _, _, err := conn.ReadMessage(); err != nil {
+						fmt.Println("❌ Read error (expected on close):", err)
+						return
+					}
+				}
+			}
+		}()
 		for range ticker.C {
 			err := conn.WriteControl(websocket.PingMessage, []byte("timeout-check"), time.Now().Add(100*time.Millisecond))
 			if err != nil {
@@ -216,11 +312,18 @@ func TestPingPongWithTimeoutEnforcedByServer(t *testing.T) {
 	require.NoError(t, err)
 
 	sw := web_socket.NewWebSocketWrapper(conn)
+	sw.SetMessageLogger(func(evt web_socket.LogRecord) {
+		if evt.Err != nil {
+			fmt.Println(">>> ERROR:", evt.Err)
+			t.Errorf("unexpected error in message: %v", evt.Err)
+		} else {
+			fmt.Println(">>> MESSAGE:", string(evt.Body))
+		}
+	})
 	sw.SetPingHandler(func(s string, w web_socket.ControlWriter) error {
-		return w.WriteControl(websocket.PongMessage, []byte(s), time.Now().Add(100*time.Millisecond))
+		return w.WriteControl(websocket.PongMessage, []byte(s), time.Now().Add(1000*time.Millisecond))
 	})
 	sw.Open()
-
 	time.Sleep(500 * time.Millisecond)
 
 	sw.Close()

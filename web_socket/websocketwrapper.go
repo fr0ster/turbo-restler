@@ -157,6 +157,10 @@ func (s *WebSocketWrapper) Open() {
 func (s *WebSocketWrapper) Close() {
 	s.stopOnce.Do(func() {
 		close(s.doneChan)
+		s.SetMessageLogger(nil)
+		s.conn.SetPingHandler(nil)
+		s.conn.SetPongHandler(nil)
+		s.conn.SetCloseHandler(nil)
 		_ = s.conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "bye"))
 		_ = s.conn.Close()
 	})
