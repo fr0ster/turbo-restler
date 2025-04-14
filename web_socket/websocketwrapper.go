@@ -12,6 +12,14 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+func init() {
+	// Configure logrus with a default formatter and log level
+	logrus.SetFormatter(&logrus.TextFormatter{
+		FullTimestamp: true,
+	})
+	logrus.SetLevel(logrus.DebugLevel)
+}
+
 // Logging operations
 
 type LogOp string
@@ -157,12 +165,12 @@ type WebSocketWrapper struct {
 	readTimeout  *time.Duration
 	writeTimeout *time.Duration
 
-	pingHandler        func(string) error
-	pongHandler        func(string) error
-	closeHandler       func(int, string) error
-	remoteCloseHandler func(error)
-	doneChan           chan struct{}
-	logger             func(LogRecord)
+	pingHandler  func(string) error
+	pongHandler  func(string) error
+	closeHandler func(int, string) error
+	// remoteCloseHandler func(error)
+	doneChan chan struct{}
+	logger   func(LogRecord)
 }
 
 func NewWebSocketWrapper(conn *websocket.Conn, sendQueueSize ...int) *WebSocketWrapper {
@@ -290,7 +298,9 @@ func (s *WebSocketWrapper) Close() {
 		}
 	}
 
-	safeClose(s.doneChan)
+	if s.isClosed.CompareAndSwap(false, true) {
+		safeClose(s.doneChan)
+	}
 	done := make(chan struct{})
 	go func() {
 		s.WaitAllLoops(5 * time.Second)
