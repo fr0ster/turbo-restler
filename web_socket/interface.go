@@ -2,17 +2,17 @@ package web_socket
 
 import "time"
 
-type ControlWriter interface {
-	WriteControl(messageType int, data []byte, deadline time.Time) error
-}
+// type ControlWriter interface {
+// 	WriteControl(messageType int, data []byte, deadline time.Time) error
+// }
 
-type WebApiReader interface {
-	ReadMessage() (messageType int, data []byte, err error)
-}
+// type WebApiReader interface {
+// 	ReadMessage() (messageType int, data []byte, err error)
+// }
 
-type WebApiWriter interface {
-	WriteMessage(messageType int, data []byte) error
-}
+// type WebApiWriter interface {
+// 	WriteMessage(messageType int, data []byte) error
+// }
 
 // WebSocketInterface defines the public interface for a WebSocket wrapper
 // that provides event-based message handling, control frame handlers,
@@ -74,17 +74,17 @@ type WebSocketInterface interface {
 	SetMessageLogger(f func(LogRecord))
 
 	// WaitReadLoop waits for the read loop to finish.
-	WaitReadLoop(timeout time.Duration) bool
+	// WaitReadLoop(timeout time.Duration) bool
 
 	// WaitWriteLoop waits for the write loop to finish.
-	WaitWriteLoop(timeout time.Duration) bool
+	// WaitWriteLoop(timeout time.Duration) bool
 
 	// WaitAllLoops waits for all loops (read and write) to finish.
-	WaitAllLoops(timeout time.Duration) bool
+	// WaitAllLoops(timeout time.Duration) bool
 
 	// PauseLoops pauses the read and write loops.
-	PauseLoops()
+	// PauseLoops()
 
 	// ResumeLoops resumes the read and write loops.
-	ResumeLoops()
+	// ResumeLoops()
 }
