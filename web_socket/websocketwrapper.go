@@ -1,46 +1,22 @@
-// file: websocket_wrapper.go
 package web_socket
 
 import (
+	"context"
 	"errors"
-	"fmt"
+	"net"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/sirupsen/logrus"
 )
-
-func init() {
-	// Configure logrus with a default formatter and log level
-	logrus.SetFormatter(&logrus.TextFormatter{
-		FullTimestamp: true,
-	})
-	logrus.SetLevel(logrus.DebugLevel)
-}
-
-// Logging operations
 
 type LogOp string
 
 const (
-	OpConnect     LogOp = "connect"
-	OpSend        LogOp = "send"
-	OpReceive     LogOp = "receive"
-	OpError       LogOp = "error"
-	OpClose       LogOp = "close"
-	OpSubscribe   LogOp = "subscribe"
-	OpUnsubscribe LogOp = "unsubscribe"
-	OpPing        LogOp = "ping"
-	OpPong        LogOp = "pong"
+	OpReceive LogOp = "receive"
+	OpSend    LogOp = "send"
 )
-
-type LogRecord struct {
-	Op   LogOp
-	Body []byte
-	Err  error
-}
 
 type MessageKind int
 
@@ -50,6 +26,12 @@ const (
 	KindControl
 )
 
+type LogRecord struct {
+	Op   LogOp
+	Body []byte
+	Err  error
+}
+
 type MessageEvent struct {
 	Kind  MessageKind
 	Body  []byte
@@ -58,29 +40,14 @@ type MessageEvent struct {
 
 type WriteCallback func(error)
 
-type SendResult struct {
-	ch chan error
-}
-
-func NewSendResult() *SendResult {
-	return &SendResult{ch: make(chan error, 1)}
-}
-
-func (s *SendResult) Send(err error) {
-	select {
-	case s.ch <- err:
-	default:
-	}
-}
-
-func (s *SendResult) Recv() error {
-	return <-s.ch
-}
-
 type WriteEvent struct {
-	Body  []byte
-	Await WriteCallback
-	Done  *SendResult
+	Body     []byte
+	Callback WriteCallback
+	ErrChan  chan error
+}
+
+type WebApiControlWriter interface {
+	WriteControl(messageType int, data []byte, deadline time.Time) error
 }
 
 type WebApiReader interface {
@@ -91,291 +58,175 @@ type WebApiWriter interface {
 	WriteMessage(messageType int, data []byte) error
 }
 
-type ControlWriter interface {
-	WriteControl(messageType int, data []byte, deadline time.Time) error
-}
-
 type WebSocketInterface interface {
 	Open()
 	Close()
-	Send(msg WriteEvent) error
-	Subscribe(func(MessageEvent)) int
+	Send(writeEvent WriteEvent) error
+	Subscribe(f func(MessageEvent)) int
 	Unsubscribe(id int)
-	Done() <-chan struct{}
-	Started() <-chan struct{}
-	SetReadTimeout(d time.Duration)
-	SetWriteTimeout(d time.Duration)
+	SetMessageLogger(f func(LogRecord))
+	SetPingHandler(f func(string) error)
+	SetReadTimeout(time.Duration)
+	SetWriteTimeout(time.Duration)
+	GetControl() WebApiControlWriter
 	GetReader() WebApiReader
 	GetWriter() WebApiWriter
-	GetControl() ControlWriter
-	SetPingHandler(func(string) error)
-	SetPongHandler(func(string) error)
-	SetCloseHandler(func(int, string) error)
-	SetMessageLogger(func(LogRecord))
-	IsReadLoopRunning() bool
-	IsWriteLoopRunning() bool
+	Started() <-chan struct{}
 	WaitAllLoops(timeout time.Duration) bool
-}
-
-type wrappedControl struct {
-	wrapper *WebSocketWrapper
-}
-
-func (w *wrappedControl) WriteControl(messageType int, data []byte, deadline time.Time) error {
-	return w.wrapper.conn.WriteControl(messageType, data, deadline)
-}
-
-type wrappedReader struct {
-	wrapper *WebSocketWrapper
-}
-
-func (r *wrappedReader) ReadMessage() (int, []byte, error) {
-	return r.wrapper.conn.ReadMessage()
-}
-
-type wrappedWriter struct {
-	wrapper *WebSocketWrapper
-}
-
-func (r *wrappedWriter) WriteMessage(messageType int, data []byte) error {
-	return r.wrapper.conn.WriteMessage(messageType, data)
-}
-
-type subscriberMeta struct {
-	Handler    func(MessageEvent)
-	Registered string
+	ResetLoops()
+	Done() <-chan struct{}
 }
 
 type WebSocketWrapper struct {
-	conn *websocket.Conn
+	conn   *websocket.Conn
+	ctx    context.Context
+	cancel context.CancelFunc
 
-	isClosed atomic.Bool
-
-	readIsWorked  atomic.Bool
-	writeIsWorked atomic.Bool
-
-	readLoopDone  chan struct{}
-	readDoneOnce  sync.Once
-	writeLoopDone chan struct{}
-
-	loopStarted chan struct{}
-	loopStopped chan struct{}
-
-	readMu  sync.Mutex
-	writeMu sync.Mutex
-
-	sendQueue   chan WriteEvent
-	subscribers map[int]subscriberMeta
-	subMu       sync.RWMutex
-	subCounter  atomic.Int32
+	readMu   sync.Mutex
+	writeMu  sync.Mutex
+	sendChan chan WriteEvent
 
 	readTimeout  *time.Duration
 	writeTimeout *time.Duration
 
-	pingHandler  func(string) error
-	pongHandler  func(string) error
-	closeHandler func(int, string) error
-	// remoteCloseHandler func(error)
-	doneChan chan struct{}
-	logger   func(LogRecord)
+	readIsWorked  atomic.Bool
+	writeIsWorked atomic.Bool
+
+	startedOnce sync.Once
+	started     chan struct{}
+
+	logger func(LogRecord)
+
+	subsMu    sync.RWMutex
+	subs      map[int]func(MessageEvent)
+	subIDGen  atomic.Int32
+	readPause atomic.Bool
+
+	readLoopDone  chan struct{}
+	writeLoopDone chan struct{}
 }
 
-func NewWebSocketWrapper(conn *websocket.Conn, sendQueueSize ...int) *WebSocketWrapper {
-	if len(sendQueueSize) == 0 {
-		sendQueueSize = append(sendQueueSize, 64)
-	}
+func NewWebSocketWrapper(conn *websocket.Conn) *WebSocketWrapper {
 	return &WebSocketWrapper{
 		conn:          conn,
-		readMu:        sync.Mutex{},
-		writeMu:       sync.Mutex{},
-		subMu:         sync.RWMutex{},
-		subCounter:    atomic.Int32{},
-		sendQueue:     make(chan WriteEvent, sendQueueSize[0]),
-		subscribers:   make(map[int]subscriberMeta),
-		doneChan:      make(chan struct{}),
-		loopStarted:   make(chan struct{}, 1),
-		loopStopped:   make(chan struct{}, 1),
-		readLoopDone:  make(chan struct{}, 1),
-		writeLoopDone: make(chan struct{}, 1),
+		sendChan:      make(chan WriteEvent, 128),
+		started:       make(chan struct{}),
+		subs:          make(map[int]func(MessageEvent)),
+		readLoopDone:  make(chan struct{}),
+		writeLoopDone: make(chan struct{}),
 	}
 }
 
-func (s *WebSocketWrapper) emit(evt MessageEvent) {
-	s.subMu.RLock()
-	defer s.subMu.RUnlock()
-	for _, sub := range s.subscribers {
-		sub.Handler(evt)
+func (w *WebSocketWrapper) SetMessageLogger(f func(LogRecord)) {
+	w.logger = f
+}
+
+func (w *WebSocketWrapper) SetPingHandler(f func(string) error) {
+	w.conn.SetPingHandler(f)
+}
+
+func (w *WebSocketWrapper) SetReadTimeout(timeout time.Duration) {
+	if w.readTimeout == nil {
+		w.readTimeout = new(time.Duration)
 	}
+	*w.readTimeout = timeout
 }
 
-func (s *WebSocketWrapper) SetPingHandler(f func(string) error) {
-	s.pingHandler = f
-}
-
-func (s *WebSocketWrapper) SetPongHandler(f func(string) error) {
-	s.pongHandler = f
-}
-
-func (s *WebSocketWrapper) SetCloseHandler(f func(int, string) error) {
-	s.closeHandler = f
-}
-
-func (s *WebSocketWrapper) SetMessageLogger(f func(LogRecord)) {
-	s.logger = f
-}
-
-func (s *WebSocketWrapper) SetReadTimeout(d time.Duration) {
-	s.readTimeout = &d
-}
-
-func (s *WebSocketWrapper) SetWriteTimeout(d time.Duration) {
-	s.writeTimeout = &d
-}
-
-func (s *WebSocketWrapper) Send(msg WriteEvent) error {
-	if s.isClosed.Load() {
-		return errors.New("websocket is closed")
+func (w *WebSocketWrapper) SetWriteTimeout(timeout time.Duration) {
+	if w.writeTimeout == nil {
+		w.writeTimeout = new(time.Duration)
 	}
-
-	select {
-	case s.sendQueue <- msg:
-		return nil
-	default:
-		return errors.New("send queue is full")
-	}
+	*w.writeTimeout = timeout
 }
 
-func (s *WebSocketWrapper) Done() <-chan struct{} {
-	return s.doneChan
-}
-
-func (s *WebSocketWrapper) Started() <-chan struct{} {
-	return s.loopStarted
-}
-
-func (s *WebSocketWrapper) GetReader() WebApiReader {
-	return &wrappedReader{wrapper: s}
-}
-
-func (s *WebSocketWrapper) GetWriter() WebApiWriter {
-	return &wrappedWriter{wrapper: s}
-}
-
-func (s *WebSocketWrapper) GetControl() ControlWriter {
-	return &wrappedControl{wrapper: s}
-}
-
-func (s *WebSocketWrapper) Subscribe(f func(MessageEvent)) int {
-	id := int(s.subCounter.Add(1))
-	s.subMu.Lock()
-	s.subscribers[id] = subscriberMeta{Handler: f, Registered: time.Now().Format(time.RFC3339Nano)}
-	s.subMu.Unlock()
+func (w *WebSocketWrapper) Subscribe(f func(MessageEvent)) int {
+	id := int(w.subIDGen.Add(1))
+	w.subsMu.Lock()
+	w.subs[id] = f
+	w.subsMu.Unlock()
 	return id
 }
 
-func (s *WebSocketWrapper) Unsubscribe(id int) {
-	s.subMu.Lock()
-	delete(s.subscribers, id)
-	s.subMu.Unlock()
+func (w *WebSocketWrapper) Unsubscribe(id int) {
+	w.subsMu.Lock()
+	delete(w.subs, id)
+	w.subsMu.Unlock()
 }
 
-func (s *WebSocketWrapper) Open() {
-	go s.readLoop()
-	go s.writeLoop()
-	go func() {
-		for {
-			if s.IsReadLoopRunning() && s.IsWriteLoopRunning() {
-				select {
-				case s.loopStarted <- struct{}{}:
-				default:
-				}
-				return
-			}
-			time.Sleep(10 * time.Millisecond)
-		}
-	}()
+func (w *WebSocketWrapper) emit(evt MessageEvent) {
+	w.subsMu.RLock()
+	defer w.subsMu.RUnlock()
+	for _, handler := range w.subs {
+		handler(evt)
+	}
 }
 
-func (s *WebSocketWrapper) Close() {
-	safeClose := func(ch chan struct{}) {
-		select {
-		case <-ch:
-		default:
-			close(ch)
-		}
-	}
+func (w *WebSocketWrapper) Started() <-chan struct{} {
+	return w.started
+}
 
-	if s.isClosed.CompareAndSwap(false, true) {
-		safeClose(s.doneChan)
+func (w *WebSocketWrapper) Done() <-chan struct{} {
+	if w.ctx != nil {
+		return w.ctx.Done()
 	}
-	done := make(chan struct{})
-	go func() {
-		s.WaitAllLoops(5 * time.Second)
-		close(done)
-	}()
+	ch := make(chan struct{})
+	close(ch)
+	return ch
+}
 
+func (w *WebSocketWrapper) Open() {
+	w.ctx, w.cancel = context.WithCancel(context.Background())
+	go w.readLoop(w.ctx)
+	go w.writeLoop(w.ctx)
+	w.startedOnce.Do(func() {
+		close(w.started)
+	})
+}
+
+func (w *WebSocketWrapper) Send(evt WriteEvent) error {
 	select {
-	case <-done:
-		safeClose(s.loopStopped)
-	case <-time.After(5 * time.Second):
-		fmt.Println("⚠️ timeout waiting for loopDone")
+	case w.sendChan <- evt:
+		return nil
+	case <-w.ctx.Done():
+		return errors.New("connection is closed")
 	}
 }
 
-func (s *WebSocketWrapper) WaitAllLoops(timeout time.Duration) bool {
-	timeoutCh := time.After(timeout)
-	readDone := s.readLoopDone
-	writeDone := s.writeLoopDone
-	for readDone != nil || writeDone != nil {
-		select {
-		case <-readDone:
-			readDone = nil
-		case <-writeDone:
-			writeDone = nil
-		case <-timeoutCh:
-			return false
-		}
-	}
-	return !s.IsReadLoopRunning() && !s.IsWriteLoopRunning()
-}
-
-func (s *WebSocketWrapper) readLoop() {
-	s.readIsWorked.Store(true)
-
+func (w *WebSocketWrapper) readLoop(ctx context.Context) {
+	w.readIsWorked.Store(true)
 	defer func() {
-		s.readIsWorked.Store(false)
-		s.readDoneOnce.Do(func() {
-			close(s.readLoopDone)
-			logrus.Debugf("ReadLoop flag done")
-		})
+		w.readIsWorked.Store(false)
+		close(w.readLoopDone)
 	}()
 
 	for {
+		if w.readPause.Load() {
+			time.Sleep(50 * time.Millisecond)
+			continue
+		}
+
 		select {
-		case <-s.doneChan:
-			logrus.Debugf("ReadLoop received done signal, exiting...")
+		case <-ctx.Done():
 			return
 		default:
 		}
 
-		logrus.Debugf("Start of iteration in ReadLoop")
-
-		s.readMu.Lock()
-		if s.readTimeout != nil {
-			_ = s.conn.SetReadDeadline(time.Now().Add(*s.readTimeout))
-		} else {
-			_ = s.conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+		w.readMu.Lock()
+		if w.readTimeout != nil {
+			_ = w.conn.SetReadDeadline(time.Now().Add(*w.readTimeout))
 		}
-		typ, msg, err := s.conn.ReadMessage()
-		s.readMu.Unlock()
+		typ, msg, err := w.conn.ReadMessage()
+		w.readMu.Unlock()
 
-		if s.logger != nil {
-			s.logger(LogRecord{Op: OpReceive, Body: msg, Err: err})
+		if w.logger != nil {
+			w.logger(LogRecord{Op: OpReceive, Body: msg, Err: err})
 		}
 
 		if err != nil {
-			logrus.Errorf("ReadMessage error: %v", err)
-			s.emit(MessageEvent{Kind: KindError, Error: err})
+			if ne, ok := err.(net.Error); ok && ne.Timeout() {
+				continue
+			}
+			w.emit(MessageEvent{Kind: KindError, Error: err})
 			return
 		}
 
@@ -383,81 +234,85 @@ func (s *WebSocketWrapper) readLoop() {
 		if typ == websocket.TextMessage || typ == websocket.BinaryMessage {
 			kind = KindData
 		}
-
-		s.emit(MessageEvent{Kind: kind, Body: msg})
-		logrus.Debugf("End of iteration in ReadLoop, msg: %s", string(msg))
+		w.emit(MessageEvent{Kind: kind, Body: msg})
 	}
 }
 
-func (s *WebSocketWrapper) writeLoop() {
-	s.writeIsWorked.Store(true)
+func (w *WebSocketWrapper) writeLoop(ctx context.Context) {
+	w.writeIsWorked.Store(true)
 	defer func() {
-		s.writeIsWorked.Store(false)
-		select {
-		case <-s.writeLoopDone:
-		default:
-			close(s.writeLoopDone)
-		}
+		w.writeIsWorked.Store(false)
+		close(w.writeLoopDone)
 	}()
 
 	for {
 		select {
-		case <-s.doneChan:
+		case <-ctx.Done():
 			return
-		case msg := <-s.sendQueue:
-			s.writeMu.Lock()
-			if s.writeTimeout != nil {
-				s.conn.SetWriteDeadline(time.Now().Add(*s.writeTimeout))
+		case evt := <-w.sendChan:
+			w.writeMu.Lock()
+			if w.writeTimeout != nil {
+				_ = w.conn.SetWriteDeadline(time.Now().Add(*w.writeTimeout))
 			}
-			err := s.conn.WriteMessage(websocket.TextMessage, msg.Body)
-			s.writeMu.Unlock()
+			err := w.conn.WriteMessage(websocket.TextMessage, evt.Body)
+			w.writeMu.Unlock()
 
-			if msg.Await != nil {
-				msg.Await(err)
-			}
-			if msg.Done != nil {
-				msg.Done.Send(err)
+			if w.logger != nil {
+				w.logger(LogRecord{Op: OpSend, Body: evt.Body, Err: err})
 			}
 
-			if s.logger != nil {
-				s.logger(LogRecord{Op: OpSend, Body: msg.Body, Err: err})
+			if evt.Callback != nil {
+				evt.Callback(err)
 			}
-			if err != nil {
-				return
+			if evt.ErrChan != nil {
+				evt.ErrChan <- err
 			}
 		}
 	}
 }
 
-func (s *WebSocketWrapper) IsReadLoopRunning() bool {
-	return s.readIsWorked.Load()
+func (w *WebSocketWrapper) PauseLoops() {
+	w.readPause.Store(true)
 }
 
-func (s *WebSocketWrapper) IsWriteLoopRunning() bool {
-	return s.writeIsWorked.Load()
+func (w *WebSocketWrapper) ResumeLoops() {
+	w.readPause.Store(false)
 }
 
-func (s *WebSocketWrapper) ResetLoops() {
-	safeClose := func(ch chan struct{}) {
+func (w *WebSocketWrapper) ResetLoops() {
+	w.PauseLoops()
+	w.ResumeLoops()
+}
+
+func (w *WebSocketWrapper) WaitAllLoops(timeout time.Duration) bool {
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case <-w.readLoopDone:
 		select {
-		case <-ch:
-		default:
-			close(ch)
+		case <-w.writeLoopDone:
+			return true
+		case <-timer.C:
+			return false
 		}
+	case <-timer.C:
+		return false
 	}
+}
 
-	safeClose(s.readLoopDone)
-	safeClose(s.writeLoopDone)
-	safeClose(s.loopStarted)
-	safeClose(s.loopStopped)
-	safeClose(s.doneChan)
+func (w *WebSocketWrapper) GetControl() WebApiControlWriter {
+	return w.conn
+}
 
-	s.readLoopDone = make(chan struct{}, 1)
-	s.writeLoopDone = make(chan struct{}, 1)
-	s.loopStarted = make(chan struct{}, 1)
-	s.loopStopped = make(chan struct{}, 1)
-	s.doneChan = make(chan struct{})
-	s.readIsWorked.Store(false)
-	s.writeIsWorked.Store(false)
-	s.isClosed.Store(false)
+func (w *WebSocketWrapper) GetReader() WebApiReader {
+	return w.conn
+}
+
+func (w *WebSocketWrapper) GetWriter() WebApiWriter {
+	return w.conn
+}
+
+func (w *WebSocketWrapper) Close() {
+	w.cancel()
+	_ = w.conn.Close()
 }

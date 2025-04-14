@@ -574,13 +574,13 @@ func TestSendWithSendResult(t *testing.T) {
 	sw := web_socket.NewWebSocketWrapper(conn)
 	sw.Open()
 
-	res := web_socket.NewSendResult()
+	res := make(chan error, 1)
 	require.NoError(t, sw.Send(web_socket.WriteEvent{
-		Body: []byte("sync"),
-		Done: res,
+		Body:    []byte("sync"),
+		ErrChan: res,
 	}))
 
-	assert.NoError(t, res.Recv())
+	assert.NoError(t, <-res)
 
 	// select {
 	// case err := res.Recv():
@@ -615,7 +615,7 @@ func TestSendWithAwaitCallback(t *testing.T) {
 
 	require.NoError(t, sw.Send(web_socket.WriteEvent{
 		Body: []byte("async"),
-		Await: func(err error) {
+		Callback: func(err error) {
 			awaitCalled <- err
 		},
 	}))
