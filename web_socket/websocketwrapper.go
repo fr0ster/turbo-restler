@@ -147,20 +147,27 @@ type subscriberMeta struct {
 }
 
 type WebSocketWrapper struct {
-	conn          *websocket.Conn
-	isClosed      atomic.Bool
+	conn *websocket.Conn
+
+	isClosed atomic.Bool
+
 	readIsWorked  atomic.Bool
 	writeIsWorked atomic.Bool
+
 	readLoopDone  chan struct{}
+	readDoneOnce  sync.Once
 	writeLoopDone chan struct{}
-	loopStarted   chan struct{}
-	loopStopped   chan struct{}
-	readMu        sync.Mutex
-	writeMu       sync.Mutex
-	sendQueue     chan WriteEvent
-	subscribers   map[int]subscriberMeta
-	subMu         sync.RWMutex
-	subCounter    atomic.Int32
+
+	loopStarted chan struct{}
+	loopStopped chan struct{}
+
+	readMu  sync.Mutex
+	writeMu sync.Mutex
+
+	sendQueue   chan WriteEvent
+	subscribers map[int]subscriberMeta
+	subMu       sync.RWMutex
+	subCounter  atomic.Int32
 
 	readTimeout  *time.Duration
 	writeTimeout *time.Duration
@@ -334,48 +341,51 @@ func (s *WebSocketWrapper) WaitAllLoops(timeout time.Duration) bool {
 
 func (s *WebSocketWrapper) readLoop() {
 	s.readIsWorked.Store(true)
+
 	defer func() {
 		s.readIsWorked.Store(false)
-		select {
-		case <-s.readLoopDone:
-		default:
+		s.readDoneOnce.Do(func() {
 			close(s.readLoopDone)
 			logrus.Debugf("ReadLoop flag done")
-		}
+		})
 	}()
 
 	for {
 		select {
 		case <-s.doneChan:
-			logrus.Debugf("ReadLoop done")
+			logrus.Debugf("ReadLoop received done signal, exiting...")
 			return
 		default:
-			logrus.Debugf("Start of iteration in ReadLoop")
-			s.readMu.Lock()
-			if s.readTimeout != nil {
-				s.conn.SetReadDeadline(time.Now().Add(*s.readTimeout))
-			} else {
-				s.conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
-			}
-			typ, msg, err := s.conn.ReadMessage()
-			s.readMu.Unlock()
-
-			if s.logger != nil {
-				s.logger(LogRecord{Op: OpReceive, Body: msg, Err: err})
-			}
-
-			if err != nil {
-				s.emit(MessageEvent{Kind: KindError, Error: err})
-				return
-			}
-
-			kind := KindControl
-			if typ == websocket.TextMessage || typ == websocket.BinaryMessage {
-				kind = KindData
-			}
-			s.emit(MessageEvent{Kind: kind, Body: msg})
-			logrus.Debugf("End of iteration in ReadLoop, msg: %s", string(msg))
 		}
+
+		logrus.Debugf("Start of iteration in ReadLoop")
+
+		s.readMu.Lock()
+		if s.readTimeout != nil {
+			_ = s.conn.SetReadDeadline(time.Now().Add(*s.readTimeout))
+		} else {
+			_ = s.conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+		}
+		typ, msg, err := s.conn.ReadMessage()
+		s.readMu.Unlock()
+
+		if s.logger != nil {
+			s.logger(LogRecord{Op: OpReceive, Body: msg, Err: err})
+		}
+
+		if err != nil {
+			logrus.Errorf("ReadMessage error: %v", err)
+			s.emit(MessageEvent{Kind: KindError, Error: err})
+			return
+		}
+
+		kind := KindControl
+		if typ == websocket.TextMessage || typ == websocket.BinaryMessage {
+			kind = KindData
+		}
+
+		s.emit(MessageEvent{Kind: kind, Body: msg})
+		logrus.Debugf("End of iteration in ReadLoop, msg: %s", string(msg))
 	}
 }
 

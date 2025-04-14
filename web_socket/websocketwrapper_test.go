@@ -725,6 +725,8 @@ func TestReconnect(t *testing.T) {
 	require.NoError(t, err)
 
 	sw := web_socket.NewWebSocketWrapper(conn)
+	sw.SetReadTimeout(500 * time.Millisecond)
+	sw.SetWriteTimeout(500 * time.Millisecond)
 	sw.SetMessageLogger(func(evt web_socket.LogRecord) {
 		if evt.Err != nil {
 			fmt.Println(">>> ERROR:", evt.Err)
@@ -735,8 +737,6 @@ func TestReconnect(t *testing.T) {
 	sw.Open()
 	<-sw.Started()
 	errCh := make(chan error, 1)
-	sw.SetReadTimeout(500 * time.Millisecond)
-	sw.SetWriteTimeout(500 * time.Millisecond)
 
 	sw.Subscribe(func(evt web_socket.MessageEvent) {
 		if string(evt.Body) != "hello" {
