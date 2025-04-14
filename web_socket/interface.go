@@ -73,6 +73,12 @@ type WebSocketInterface interface {
 	// The function will be called for every received MessageEvent.
 	SetMessageLogger(f func(LogRecord))
 
+	// IsReadLoopRunning checks if the read loop is currently running.
+	IsReadLoopRunning() bool
+
+	// IsWriteLoopRunning checks if the write loop is currently running.
+	IsWriteLoopRunning() bool
+
 	// WaitReadLoop waits for the read loop to finish.
 	// WaitReadLoop(timeout time.Duration) bool
 
@@ -80,7 +86,7 @@ type WebSocketInterface interface {
 	// WaitWriteLoop(timeout time.Duration) bool
 
 	// WaitAllLoops waits for all loops (read and write) to finish.
-	// WaitAllLoops(timeout time.Duration) bool
+	WaitAllLoops(timeout time.Duration) bool
 
 	// PauseLoops pauses the read and write loops.
 	// PauseLoops()

@@ -151,16 +151,18 @@ func NewWebSocketWrapper(conn *websocket.Conn, sendQueueSize ...int) *WebSocketW
 		sendQueueSize = append(sendQueueSize, 64)
 	}
 	return &WebSocketWrapper{
-		conn:        conn,
-		readMu:      sync.Mutex{},
-		writeMu:     sync.Mutex{},
-		subMu:       sync.RWMutex{},
-		subCounter:  atomic.Int32{},
-		sendQueue:   make(chan WriteEvent, sendQueueSize[0]),
-		subscribers: make(map[int]subscriberMeta),
-		doneChan:    make(chan struct{}),
-		loopStarted: make(chan struct{}),
-		loopStopped: make(chan struct{}),
+		conn:          conn,
+		readMu:        sync.Mutex{},
+		writeMu:       sync.Mutex{},
+		subMu:         sync.RWMutex{},
+		subCounter:    atomic.Int32{},
+		sendQueue:     make(chan WriteEvent, sendQueueSize[0]),
+		subscribers:   make(map[int]subscriberMeta),
+		doneChan:      make(chan struct{}),
+		loopStarted:   make(chan struct{}),
+		loopStopped:   make(chan struct{}),
+		readLoopDone:  make(chan struct{}),
+		writeLoopDone: make(chan struct{}),
 	}
 }
 
@@ -252,18 +254,6 @@ func (s *WebSocketWrapper) SetRemoteCloseHandler(f func(error)) {
 }
 
 func (s *WebSocketWrapper) Open() {
-	if s.pingHandler != nil {
-		s.conn.SetPingHandler(s.pingHandler)
-	}
-	if s.pongHandler != nil {
-		s.conn.SetPongHandler(s.pongHandler)
-	}
-	if s.closeHandler != nil {
-		s.conn.SetCloseHandler(s.closeHandler)
-	}
-	// if s.remoteCloseHandler != nil {
-	// 	s.conn.SetRemoteCloseHandler(s.remoteCloseHandler)
-	// }
 	go s.readLoop()
 	go s.writeLoop()
 	close(s.loopStarted)
@@ -271,16 +261,34 @@ func (s *WebSocketWrapper) Open() {
 
 func (s *WebSocketWrapper) Close() {
 	close(s.doneChan)
+	<-s.readLoopDone
+	<-s.writeLoopDone
 	close(s.loopStopped)
+}
+
+func (s *WebSocketWrapper) WaitAllLoops(timeout time.Duration) bool {
+	readDone := s.readLoopDone
+	writeDone := s.writeLoopDone
+	timeoutCh := time.After(timeout)
+
+	for readDone != nil || writeDone != nil {
+		select {
+		case <-readDone:
+			readDone = nil
+		case <-writeDone:
+			writeDone = nil
+		case <-timeoutCh:
+			return false
+		}
+	}
+	return true
 }
 
 func (s *WebSocketWrapper) readLoop() {
 	s.readIsWorked.Store(true)
 	defer func() {
 		s.readIsWorked.Store(false)
-		if s.readLoopDone != nil {
-			close(s.readLoopDone)
-		}
+		close(s.readLoopDone)
 	}()
 
 	for {
@@ -317,9 +325,7 @@ func (s *WebSocketWrapper) writeLoop() {
 	s.writeIsWorked.Store(true)
 	defer func() {
 		s.writeIsWorked.Store(false)
-		if s.writeLoopDone != nil {
-			close(s.writeLoopDone)
-		}
+		close(s.writeLoopDone)
 	}()
 
 	for {
@@ -349,4 +355,12 @@ func (s *WebSocketWrapper) writeLoop() {
 			}
 		}
 	}
+}
+
+func (s *WebSocketWrapper) IsReadLoopRunning() bool {
+	return s.readIsWorked.Load()
+}
+
+func (s *WebSocketWrapper) IsWriteLoopRunning() bool {
+	return s.writeIsWorked.Load()
 }
