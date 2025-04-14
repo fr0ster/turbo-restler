@@ -8,7 +8,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fr0ster/turbo-restler/web_socket"
+	web_socket "github.com/fr0ster/turbo-restler/web_socket"
 )
 
 func newTestWS(t *testing.T) web_socket.WebSocketInterface {

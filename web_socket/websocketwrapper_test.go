@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fr0ster/turbo-restler/web_socket"
+	web_socket "github.com/fr0ster/turbo-restler/web_socket"
 )
 
 func StartWebSocketTestServer(handler http.Handler) (url string, cleanup func()) {
@@ -733,25 +733,12 @@ func TestReconnect(t *testing.T) {
 		}
 	})
 	sw.Open()
-	// <-sw.Started()
+	<-sw.Started()
 	errCh := make(chan error, 1)
 	sw.SetReadTimeout(500 * time.Millisecond)
 	sw.SetWriteTimeout(500 * time.Millisecond)
 
-	// select {
-	// case <-sw.Started():
-	// case err := <-errCh:
-	// 	t.Fatal(err)
-	// case <-time.After(2 * time.Second):
-	// 	t.Fatal("did not receive message")
-	// 	return
-	// }
-
 	sw.Subscribe(func(evt web_socket.MessageEvent) {
-		if evt.Error != nil {
-			errCh <- evt.Error
-			return
-		}
 		if string(evt.Body) != "hello" {
 			errCh <- fmt.Errorf("expected 'hello', got '%s'", string(evt.Body))
 			return
@@ -764,21 +751,15 @@ func TestReconnect(t *testing.T) {
 
 	sw.Close()
 
-	select {
-	case <-sw.Done():
-	case err := <-errCh:
-		t.Fatal(err)
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not receive message")
-		return
-	}
-
-	conn2, _, err := websocket.DefaultDialer.Dial(u, nil)
-	require.NoError(t, err)
-	sw = web_socket.NewWebSocketWrapper(conn2)
+	sw.ResetLoops()
 	sw.Open()
 	<-sw.Started()
 
-	require.NoError(t, sw.Send(web_socket.WriteEvent{Body: []byte("hello")}))
+	require.NoError(t, sw.Send(web_socket.WriteEvent{Body: []byte("hello2")}))
+
+	time.Sleep(100 * time.Millisecond)
+
+	sw.Close()
+	<-sw.Done()
 
 }

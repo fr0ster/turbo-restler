@@ -416,3 +416,28 @@ func (s *WebSocketWrapper) IsReadLoopRunning() bool {
 func (s *WebSocketWrapper) IsWriteLoopRunning() bool {
 	return s.writeIsWorked.Load()
 }
+
+func (s *WebSocketWrapper) ResetLoops() {
+	safeClose := func(ch chan struct{}) {
+		select {
+		case <-ch:
+		default:
+			close(ch)
+		}
+	}
+
+	safeClose(s.readLoopDone)
+	safeClose(s.writeLoopDone)
+	safeClose(s.loopStarted)
+	safeClose(s.loopStopped)
+	safeClose(s.doneChan)
+
+	s.readLoopDone = make(chan struct{}, 1)
+	s.writeLoopDone = make(chan struct{}, 1)
+	s.loopStarted = make(chan struct{}, 1)
+	s.loopStopped = make(chan struct{}, 1)
+	s.doneChan = make(chan struct{})
+	s.readIsWorked.Store(false)
+	s.writeIsWorked.Store(false)
+	s.isClosed.Store(false)
+}

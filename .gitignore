@@ -25,3 +25,4 @@ go.work.sum
 .env
 
 .fake
+web_socket/.DS_Store
