@@ -4,12 +4,12 @@ package web_socket
 import (
 	"errors"
 	"fmt"
-	"runtime/debug"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/sirupsen/logrus"
 )
 
 // Logging operations
@@ -54,33 +54,25 @@ type SendResult struct {
 	ch chan error
 }
 
-func NewSendResult() SendResult {
-	return SendResult{ch: make(chan error, 1)}
+func NewSendResult() *SendResult {
+	return &SendResult{ch: make(chan error, 1)}
 }
 
-func (r SendResult) Send(err error) {
+func (s *SendResult) Send(err error) {
 	select {
-	case r.ch <- err:
+	case s.ch <- err:
 	default:
 	}
 }
 
-func (r SendResult) Recv() <-chan error {
-	return r.ch
-}
-
-func (r SendResult) IsZero() bool {
-	return r.ch == nil
+func (s *SendResult) Recv() error {
+	return <-s.ch
 }
 
 type WriteEvent struct {
 	Body  []byte
 	Await WriteCallback
-	Done  SendResult
-}
-
-type ControlWriter interface {
-	WriteControl(messageType int, data []byte, deadline time.Time) error
+	Done  *SendResult
 }
 
 type WebApiReader interface {
@@ -89,6 +81,32 @@ type WebApiReader interface {
 
 type WebApiWriter interface {
 	WriteMessage(messageType int, data []byte) error
+}
+
+type ControlWriter interface {
+	WriteControl(messageType int, data []byte, deadline time.Time) error
+}
+
+type WebSocketInterface interface {
+	Open()
+	Close()
+	Send(msg WriteEvent) error
+	Subscribe(func(MessageEvent)) int
+	Unsubscribe(id int)
+	Done() <-chan struct{}
+	Started() <-chan struct{}
+	SetReadTimeout(d time.Duration)
+	SetWriteTimeout(d time.Duration)
+	GetReader() WebApiReader
+	GetWriter() WebApiWriter
+	GetControl() ControlWriter
+	SetPingHandler(func(string) error)
+	SetPongHandler(func(string) error)
+	SetCloseHandler(func(int, string) error)
+	SetMessageLogger(func(LogRecord))
+	IsReadLoopRunning() bool
+	IsWriteLoopRunning() bool
+	WaitAllLoops(timeout time.Duration) bool
 }
 
 type wrappedControl struct {
@@ -160,29 +178,55 @@ func NewWebSocketWrapper(conn *websocket.Conn, sendQueueSize ...int) *WebSocketW
 		sendQueue:     make(chan WriteEvent, sendQueueSize[0]),
 		subscribers:   make(map[int]subscriberMeta),
 		doneChan:      make(chan struct{}),
-		loopStarted:   make(chan struct{}),
-		loopStopped:   make(chan struct{}),
-		readLoopDone:  make(chan struct{}),
-		writeLoopDone: make(chan struct{}),
+		loopStarted:   make(chan struct{}, 1),
+		loopStopped:   make(chan struct{}, 1),
+		readLoopDone:  make(chan struct{}, 1),
+		writeLoopDone: make(chan struct{}, 1),
 	}
 }
 
-func (s *WebSocketWrapper) SetReadTimeout(timeout time.Duration) {
-	s.readTimeout = new(time.Duration)
-	*s.readTimeout = timeout
+func (s *WebSocketWrapper) emit(evt MessageEvent) {
+	s.subMu.RLock()
+	defer s.subMu.RUnlock()
+	for _, sub := range s.subscribers {
+		sub.Handler(evt)
+	}
 }
 
-func (s *WebSocketWrapper) SetWriteTimeout(timeout time.Duration) {
-	s.writeTimeout = new(time.Duration)
-	*s.writeTimeout = timeout
+func (s *WebSocketWrapper) SetPingHandler(f func(string) error) {
+	s.pingHandler = f
+}
+
+func (s *WebSocketWrapper) SetPongHandler(f func(string) error) {
+	s.pongHandler = f
+}
+
+func (s *WebSocketWrapper) SetCloseHandler(f func(int, string) error) {
+	s.closeHandler = f
+}
+
+func (s *WebSocketWrapper) SetMessageLogger(f func(LogRecord)) {
+	s.logger = f
+}
+
+func (s *WebSocketWrapper) SetReadTimeout(d time.Duration) {
+	s.readTimeout = &d
+}
+
+func (s *WebSocketWrapper) SetWriteTimeout(d time.Duration) {
+	s.writeTimeout = &d
 }
 
 func (s *WebSocketWrapper) Send(msg WriteEvent) error {
+	if s.isClosed.Load() {
+		return errors.New("websocket is closed")
+	}
+
 	select {
 	case s.sendQueue <- msg:
 		return nil
 	default:
-		return websocket.ErrCloseSent
+		return errors.New("send queue is full")
 	}
 }
 
@@ -206,18 +250,12 @@ func (s *WebSocketWrapper) GetControl() ControlWriter {
 	return &wrappedControl{wrapper: s}
 }
 
-func (s *WebSocketWrapper) Subscribe(handler func(MessageEvent)) (int, error) {
-	if handler == nil {
-		return 0, errors.New("handler cannot be nil")
-	}
+func (s *WebSocketWrapper) Subscribe(f func(MessageEvent)) int {
 	id := int(s.subCounter.Add(1))
 	s.subMu.Lock()
-	s.subscribers[id] = subscriberMeta{
-		Handler:    handler,
-		Registered: string(debug.Stack()),
-	}
+	s.subscribers[id] = subscriberMeta{Handler: f, Registered: time.Now().Format(time.RFC3339Nano)}
 	s.subMu.Unlock()
-	return id, nil
+	return id
 }
 
 func (s *WebSocketWrapper) Unsubscribe(id int) {
@@ -226,77 +264,51 @@ func (s *WebSocketWrapper) Unsubscribe(id int) {
 	s.subMu.Unlock()
 }
 
-func (s *WebSocketWrapper) emit(evt MessageEvent) {
-	s.subMu.RLock()
-	defer s.subMu.RUnlock()
-	for _, meta := range s.subscribers {
-		go meta.Handler(evt)
-	}
-}
-
-func (s *WebSocketWrapper) SetMessageLogger(f func(LogRecord)) {
-	s.logger = f
-}
-
-func (s *WebSocketWrapper) SetPingHandler(f func(string) error) {
-	s.pingHandler = f
-}
-
-func (s *WebSocketWrapper) SetPongHandler(f func(string) error) {
-	s.pongHandler = f
-}
-
-func (s *WebSocketWrapper) SetCloseHandler(f func(int, string) error) {
-	s.closeHandler = f
-}
-
-func (s *WebSocketWrapper) SetRemoteCloseHandler(f func(error)) {
-	s.remoteCloseHandler = f
-}
-
 func (s *WebSocketWrapper) Open() {
 	go s.readLoop()
 	go s.writeLoop()
-	select {
-	case <-s.loopStarted:
-		return
-	default:
-		close(s.loopStarted)
-	}
+	go func() {
+		for {
+			if s.IsReadLoopRunning() && s.IsWriteLoopRunning() {
+				select {
+				case s.loopStarted <- struct{}{}:
+				default:
+				}
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}()
 }
 
 func (s *WebSocketWrapper) Close() {
-	select {
-	case <-s.doneChan:
-		return
-	default:
-		close(s.doneChan)
+	safeClose := func(ch chan struct{}) {
+		select {
+		case <-ch:
+		default:
+			close(ch)
+		}
 	}
 
+	safeClose(s.doneChan)
 	done := make(chan struct{})
 	go func() {
-		<-s.readLoopDone
-		<-s.writeLoopDone
+		s.WaitAllLoops(5 * time.Second)
 		close(done)
 	}()
 
 	select {
 	case <-done:
-		select {
-		case <-s.loopStopped:
-		default:
-			close(s.loopStopped)
-		}
-	case <-time.After(2 * time.Second):
+		safeClose(s.loopStopped)
+	case <-time.After(5 * time.Second):
 		fmt.Println("⚠️ timeout waiting for loopDone")
 	}
 }
 
 func (s *WebSocketWrapper) WaitAllLoops(timeout time.Duration) bool {
+	timeoutCh := time.After(timeout)
 	readDone := s.readLoopDone
 	writeDone := s.writeLoopDone
-	timeoutCh := time.After(timeout)
-
 	for readDone != nil || writeDone != nil {
 		select {
 		case <-readDone:
@@ -307,7 +319,7 @@ func (s *WebSocketWrapper) WaitAllLoops(timeout time.Duration) bool {
 			return false
 		}
 	}
-	return true
+	return !s.IsReadLoopRunning() && !s.IsWriteLoopRunning()
 }
 
 func (s *WebSocketWrapper) readLoop() {
@@ -318,17 +330,22 @@ func (s *WebSocketWrapper) readLoop() {
 		case <-s.readLoopDone:
 		default:
 			close(s.readLoopDone)
+			logrus.Debugf("ReadLoop flag done")
 		}
 	}()
 
 	for {
 		select {
 		case <-s.doneChan:
+			logrus.Debugf("ReadLoop done")
 			return
 		default:
+			logrus.Debugf("Start of iteration in ReadLoop")
 			s.readMu.Lock()
 			if s.readTimeout != nil {
 				s.conn.SetReadDeadline(time.Now().Add(*s.readTimeout))
+			} else {
+				s.conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
 			}
 			typ, msg, err := s.conn.ReadMessage()
 			s.readMu.Unlock()
@@ -347,6 +364,7 @@ func (s *WebSocketWrapper) readLoop() {
 				kind = KindData
 			}
 			s.emit(MessageEvent{Kind: kind, Body: msg})
+			logrus.Debugf("End of iteration in ReadLoop, msg: %s", string(msg))
 		}
 	}
 }
@@ -377,7 +395,7 @@ func (s *WebSocketWrapper) writeLoop() {
 			if msg.Await != nil {
 				msg.Await(err)
 			}
-			if !msg.Done.IsZero() {
+			if msg.Done != nil {
 				msg.Done.Send(err)
 			}
 

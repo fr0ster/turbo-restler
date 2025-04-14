@@ -43,21 +43,12 @@ func echoHandler(w http.ResponseWriter, r *http.Request) {
 func TestWebSocketInterface_BasicSendReceive(t *testing.T) {
 	ws := newTestWS(t)
 	defer func() {
-		t.Log("Before close")
-		t.Logf("Reading Loops state: %v", ws.IsReadLoopRunning())
-		t.Logf("Writing Loops state: %v", ws.IsWriteLoopRunning())
 		ws.Close()
-		t.Log("After close")
-		t.Logf("Reading Loops state: %v", ws.IsReadLoopRunning())
-		t.Logf("Writing Loops state: %v", ws.IsWriteLoopRunning())
-		// <-ws.Done()
+		<-ws.Done()
 		ok := ws.WaitAllLoops(10 * time.Second)
 		if !ok {
 			t.Log("Loops did not finish in time")
 		}
-		t.Log("After done")
-		t.Logf("Reading Loops state: %v", ws.IsReadLoopRunning())
-		t.Logf("Writing Loops state: %v", ws.IsWriteLoopRunning())
 	}()
 
 	recv := make(chan string, 1)
@@ -90,14 +81,13 @@ func TestWebSocketInterface_Unsubscribe(t *testing.T) {
 	}()
 
 	called := false
-	id, err := ws.Subscribe(func(evt web_socket.MessageEvent) {
+	id := ws.Subscribe(func(evt web_socket.MessageEvent) {
 		called = true
 	})
-	require.NoError(t, err)
 	require.NotEmpty(t, id)
-	_, err = ws.Subscribe(nil)
-	require.Error(t, err)
+	time.Sleep(100 * time.Millisecond)
 	ws.Unsubscribe(id)
+	called = false
 
 	_ = ws.Send(web_socket.WriteEvent{Body: []byte("test")})
 	time.Sleep(200 * time.Millisecond)

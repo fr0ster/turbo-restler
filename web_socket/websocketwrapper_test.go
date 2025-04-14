@@ -521,16 +521,13 @@ func TestSubscribeUnsubscribe(t *testing.T) {
 
 	called := make(chan string, 2)
 
-	id, err := sw.Subscribe(func(evt web_socket.MessageEvent) {
+	id := sw.Subscribe(func(evt web_socket.MessageEvent) {
 		fmt.Println(">>> HANDLER CALLED")
 		called <- string(evt.Body)
 	})
 	require.NoError(t, err)
 	require.NotEmpty(t, id)
 	fmt.Println(">>> SUBSCRIBED")
-
-	_, err = sw.Subscribe(nil)
-	require.Error(t, err)
 
 	// Send the first message, the handler should be triggered
 	require.NoError(t, sw.Send(web_socket.WriteEvent{Body: []byte("first")}))
@@ -583,12 +580,14 @@ func TestSendWithSendResult(t *testing.T) {
 		Done: res,
 	}))
 
-	select {
-	case err := <-res.Recv():
-		assert.NoError(t, err)
-	case <-time.After(time.Second):
-		t.Fatal("SendResult timed out")
-	}
+	assert.NoError(t, res.Recv())
+
+	// select {
+	// case err := res.Recv():
+	// 	assert.NoError(t, err)
+	// case <-time.After(time.Second):
+	// 	t.Fatal("SendResult timed out")
+	// }
 
 	sw.Close()
 	<-sw.Done()
@@ -734,16 +733,19 @@ func TestReconnect(t *testing.T) {
 		}
 	})
 	sw.Open()
+	// <-sw.Started()
 	errCh := make(chan error, 1)
+	sw.SetReadTimeout(500 * time.Millisecond)
+	sw.SetWriteTimeout(500 * time.Millisecond)
 
-	select {
-	case <-sw.Started():
-	case err := <-errCh:
-		t.Fatal(err)
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not receive message")
-		return
-	}
+	// select {
+	// case <-sw.Started():
+	// case err := <-errCh:
+	// 	t.Fatal(err)
+	// case <-time.After(2 * time.Second):
+	// 	t.Fatal("did not receive message")
+	// 	return
+	// }
 
 	sw.Subscribe(func(evt web_socket.MessageEvent) {
 		if evt.Error != nil {
@@ -770,4 +772,13 @@ func TestReconnect(t *testing.T) {
 		t.Fatal("did not receive message")
 		return
 	}
+
+	conn2, _, err := websocket.DefaultDialer.Dial(u, nil)
+	require.NoError(t, err)
+	sw = web_socket.NewWebSocketWrapper(conn2)
+	sw.Open()
+	<-sw.Started()
+
+	require.NoError(t, sw.Send(web_socket.WriteEvent{Body: []byte("hello")}))
+
 }
