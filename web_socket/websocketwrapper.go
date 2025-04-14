@@ -113,14 +113,13 @@ type subscriberMeta struct {
 }
 
 type WebSocketWrapper struct {
-	conn     *websocket.Conn
-	isClosed atomic.Bool
-	// readLoopStop  chan struct{}
-	readLoopDone chan struct{}
-	readIsWorked atomic.Bool
-	// writeLoopStop chan struct{}
+	conn            *websocket.Conn
+	isClosed        atomic.Bool
+	readLoopDone    chan struct{}
+	readIsWorked    atomic.Bool
 	writeLoopDone   chan struct{}
 	writeIsWorked   atomic.Bool
+	loopStartedOnce sync.Once
 	loopStarted     chan struct{}
 	loopStoppedOnce sync.Once
 	loopStopped     chan struct{}
@@ -150,16 +149,14 @@ func NewWebSocketWrapper(conn *websocket.Conn, sendQueueSize ...int) *WebSocketW
 		sendQueueSize = append(sendQueueSize, 64)
 	}
 	s := &WebSocketWrapper{
-		conn:        conn,
-		readMu:      sync.Mutex{},
-		writeMu:     sync.Mutex{},
-		subMu:       sync.RWMutex{},
-		subCounter:  atomic.Int32{},
-		sendQueue:   make(chan WriteEvent, sendQueueSize[0]),
-		subscribers: make(map[int]subscriberMeta),
-		doneChan:    make(chan struct{}),
-		// readLoopStop:       make(chan struct{}),
-		// writeLoopStop:      make(chan struct{}),
+		conn:               conn,
+		readMu:             sync.Mutex{},
+		writeMu:            sync.Mutex{},
+		subMu:              sync.RWMutex{},
+		subCounter:         atomic.Int32{},
+		sendQueue:          make(chan WriteEvent, sendQueueSize[0]),
+		subscribers:        make(map[int]subscriberMeta),
+		doneChan:           make(chan struct{}),
 		loopStarted:        make(chan struct{}),
 		loopStopped:        make(chan struct{}),
 		readTimeout:        nil,
@@ -170,6 +167,7 @@ func NewWebSocketWrapper(conn *websocket.Conn, sendQueueSize ...int) *WebSocketW
 		logger:             nil,
 		remoteCloseHandler: nil,
 		stopOnce:           sync.Once{},
+		loopStartedOnce:    sync.Once{},
 	}
 	// go func() {
 	// 	for {
@@ -222,6 +220,26 @@ func (s *WebSocketWrapper) signalLoopStartedIfReady() {
 	}
 }
 
+func (s *WebSocketWrapper) checkAndSignalLoopStarted() {
+	for {
+		if s.readIsWorked.Load() && s.writeIsWorked.Load() {
+			s.loopStartedOnce.Do(func() {
+				fmt.Println("✅ Closing loopStarted")
+				close(s.loopStarted)
+			})
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func (s *WebSocketWrapper) resetLoopSync() {
+	s.loopStoppedOnce = sync.Once{}
+	s.loopStartedOnce = sync.Once{}
+	s.loopStopped = make(chan struct{})
+	s.loopStarted = make(chan struct{})
+}
+
 func (s *WebSocketWrapper) checkLoops() {
 	if !s.readIsWorked.Load() && !s.writeIsWorked.Load() {
 		s.loopStoppedOnce.Do(func() {
@@ -233,15 +251,12 @@ func (s *WebSocketWrapper) checkLoops() {
 
 func (s *WebSocketWrapper) startLoops() {
 	if !s.readIsWorked.Load() {
-		go func() {
-			s.readLoop()
-		}()
+		go s.readLoop()
 	}
 	if !s.writeIsWorked.Load() {
-		go func() {
-			s.writeLoop()
-		}()
+		go s.writeLoop()
 	}
+	go s.checkAndSignalLoopStarted()
 }
 
 func (s *WebSocketWrapper) stopLoops() {
@@ -613,13 +628,12 @@ func (s *WebSocketWrapper) PauseLoops() {
 
 func (s *WebSocketWrapper) ResumeLoops() {
 	<-s.loopStopped
-	if !s.readIsWorked.Load() && !s.writeIsWorked.Load() {
-		s.loopStoppedOnce = sync.Once{} // скидання
-		s.loopStopped = make(chan struct{})
-		s.loopStarted = make(chan struct{})
-		s.writeMu.Unlock()
-		s.readMu.Unlock()
-	}
+	s.readIsWorked.Store(false)
+	s.writeIsWorked.Store(false)
+
+	s.resetLoopSync()
+	s.writeMu.Unlock()
+	s.readMu.Unlock()
 	s.startLoops()
 	<-s.loopStarted
 }
