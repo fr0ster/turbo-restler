@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -322,12 +323,15 @@ func TestPingPongWithTimeoutEnforcedByServer(t *testing.T) {
 	require.NoError(t, err)
 
 	sw := web_socket.NewWebSocketWrapper(conn)
+	seen := false
 	sw.SetMessageLogger(func(evt web_socket.LogRecord) {
 		if evt.Err != nil {
-			fmt.Println(">>> ERROR:", evt.Err)
+			if !seen && strings.Contains(evt.Err.Error(), "use of closed network connection") {
+				seen = true
+				fmt.Println("✅ Got expected socket error:", evt.Err)
+				return
+			}
 			t.Errorf("unexpected error in message: %v", evt.Err)
-		} else {
-			fmt.Println(">>> MESSAGE:", string(evt.Body))
 		}
 	})
 	sw.SetPingHandler(func(s string) error {

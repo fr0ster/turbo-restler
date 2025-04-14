@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -223,9 +224,27 @@ func (w *WebSocketWrapper) readLoop(ctx context.Context) {
 		}
 
 		if err != nil {
-			if ne, ok := err.(net.Error); ok && ne.Timeout() {
+			var closeErr *websocket.CloseError
+			if errors.As(err, &closeErr) {
+				// WebSocket закритий певним кодом
+				w.emit(MessageEvent{Kind: KindError, Error: err})
+				return
+			}
+
+			// Перевіримо на use of closed network connection
+			if strings.Contains(err.Error(), "use of closed network connection") {
+				w.emit(MessageEvent{Kind: KindError, Error: err})
+				return
+			}
+
+			// Перевірка на тимчасові помилки
+			var netErr net.Error
+			if errors.As(err, &netErr) && netErr.Timeout() {
+				// Це можна проігнорувати і продовжити
 				continue
 			}
+
+			// Усі інші помилки — передаємо і виходимо
 			w.emit(MessageEvent{Kind: KindError, Error: err})
 			return
 		}
