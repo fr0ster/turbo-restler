@@ -3,6 +3,7 @@ package web_socket
 
 import (
 	"errors"
+	"fmt"
 	"runtime/debug"
 	"sync"
 	"sync/atomic"
@@ -256,14 +257,39 @@ func (s *WebSocketWrapper) SetRemoteCloseHandler(f func(error)) {
 func (s *WebSocketWrapper) Open() {
 	go s.readLoop()
 	go s.writeLoop()
-	close(s.loopStarted)
+	select {
+	case <-s.loopStarted:
+		return
+	default:
+		close(s.loopStarted)
+	}
 }
 
 func (s *WebSocketWrapper) Close() {
-	close(s.doneChan)
-	<-s.readLoopDone
-	<-s.writeLoopDone
-	close(s.loopStopped)
+	select {
+	case <-s.doneChan:
+		return
+	default:
+		close(s.doneChan)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		<-s.readLoopDone
+		<-s.writeLoopDone
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		select {
+		case <-s.loopStopped:
+		default:
+			close(s.loopStopped)
+		}
+	case <-time.After(2 * time.Second):
+		fmt.Println("⚠️ timeout waiting for loopDone")
+	}
 }
 
 func (s *WebSocketWrapper) WaitAllLoops(timeout time.Duration) bool {
@@ -288,7 +314,11 @@ func (s *WebSocketWrapper) readLoop() {
 	s.readIsWorked.Store(true)
 	defer func() {
 		s.readIsWorked.Store(false)
-		close(s.readLoopDone)
+		select {
+		case <-s.readLoopDone:
+		default:
+			close(s.readLoopDone)
+		}
 	}()
 
 	for {
@@ -325,7 +355,11 @@ func (s *WebSocketWrapper) writeLoop() {
 	s.writeIsWorked.Store(true)
 	defer func() {
 		s.writeIsWorked.Store(false)
-		close(s.writeLoopDone)
+		select {
+		case <-s.writeLoopDone:
+		default:
+			close(s.writeLoopDone)
+		}
 	}()
 
 	for {
