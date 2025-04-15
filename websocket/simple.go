@@ -54,11 +54,11 @@ func (w *WebSocketWrapper) readLoop() {
 		default:
 		}
 
-		err := w.conn.SetReadDeadline(time.Now().Add(1000 * time.Millisecond))
-		if err != nil {
-			logrus.Errorf("SetReadDeadline error: %v", err)
-			break
-		}
+		// err := w.conn.SetReadDeadline(time.Now().Add(1000 * time.Millisecond))
+		// if err != nil {
+		// 	logrus.Errorf("SetReadDeadline error: %v", err)
+		// 	break
+		// }
 
 		_, body, err := w.conn.ReadMessage()
 		if err != nil {

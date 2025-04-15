@@ -1,6 +1,7 @@
 package web_socket_test
 
 import (
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
@@ -15,10 +16,8 @@ func newTestWS(t *testing.T) web_socket.WebSocketInterface {
 	u, cleanup := StartWebSocketTestServer(http.HandlerFunc(echoHandler))
 	t.Cleanup(cleanup)
 
-	conn, _, err := websocket.DefaultDialer.Dial(u, nil)
+	ws, err := web_socket.NewWebSocketWrapper(websocket.DefaultDialer, u)
 	require.NoError(t, err)
-
-	ws := web_socket.NewWebSocketWrapper(conn)
 	ws.Open()
 	<-ws.Started()
 	return ws
@@ -53,6 +52,7 @@ func TestWebSocketInterface_BasicSendReceive(t *testing.T) {
 
 	recv := make(chan string, 1)
 	ws.Subscribe(func(evt web_socket.MessageEvent) {
+		t.Logf("Received message: %s %s %s", fmt.Sprintf("%v", evt.Kind), string(evt.Body), evt.Error)
 		if evt.Kind == web_socket.KindData {
 			recv <- string(evt.Body)
 		}

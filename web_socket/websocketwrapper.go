@@ -3,7 +3,8 @@ package web_socket
 import (
 	"context"
 	"errors"
-	"strings"
+	"io"
+	"net"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -81,6 +82,9 @@ type WebSocketInterface interface {
 
 type WebSocketWrapper struct {
 	conn   *websocket.Conn
+	dialer *websocket.Dialer
+	url    string
+
 	ctx    context.Context
 	cancel context.CancelFunc
 
@@ -109,16 +113,22 @@ type WebSocketWrapper struct {
 	writeLoopDone chan struct{}
 }
 
-func NewWebSocketWrapper(conn *websocket.Conn) *WebSocketWrapper {
+func NewWebSocketWrapper(d *websocket.Dialer, url string) (*WebSocketWrapper, error) {
+	conn, _, err := d.Dial(url, nil)
+	if err != nil {
+		return nil, errors.New("failed to connect to WebSocket: " + err.Error())
+	}
 	return &WebSocketWrapper{
 		conn:          conn,
+		dialer:        d,
+		url:           url,
 		sendChan:      make(chan WriteEvent, 128),
 		started:       make(chan struct{}),
 		subs:          make(map[int]func(MessageEvent)),
 		readLoopDone:  make(chan struct{}),
 		writeLoopDone: make(chan struct{}),
 		timeout:       500 * time.Millisecond,
-	}
+	}, nil
 }
 
 func (w *WebSocketWrapper) SetMessageLogger(f func(LogRecord)) {
@@ -204,15 +214,14 @@ func (w *WebSocketWrapper) Send(evt WriteEvent) error {
 	}
 }
 
-func isExpectedReadError(err error) bool {
-	if err == nil {
-		return false
-	}
-	var closeErr *websocket.CloseError
-	if errors.As(err, &closeErr) {
-		return true
-	}
-	if strings.Contains(err.Error(), "use of closed network connection") {
+func isSocketClosedByServerError(err error) bool {
+	if websocket.IsCloseError(err,
+		websocket.CloseNormalClosure,
+		websocket.CloseGoingAway,
+		websocket.ClosePolicyViolation,
+		websocket.CloseAbnormalClosure) ||
+		errors.Is(err, net.ErrClosed) ||
+		errors.Is(err, io.EOF) {
 		return true
 	}
 	return false
@@ -234,6 +243,12 @@ func (w *WebSocketWrapper) readLoop(ctx context.Context) {
 		}
 
 		w.readMu.Lock()
+		if w.readTimeout != nil {
+			w.conn.SetReadDeadline(time.Now().Add(*w.readTimeout))
+		} else {
+			// ❗️ Зняти deadline, щоб ReadMessage блокувався
+			w.conn.SetReadDeadline(time.Time{})
+		}
 		typ, msg, err := w.conn.ReadMessage()
 		w.readMu.Unlock()
 
@@ -243,7 +258,7 @@ func (w *WebSocketWrapper) readLoop(ctx context.Context) {
 
 		if err != nil {
 			// Обробка очікуваних помилок
-			if isExpectedReadError(err) {
+			if isSocketClosedByServerError(err) {
 				w.emit(MessageEvent{Kind: KindError, Error: err})
 				return
 			}
@@ -351,14 +366,16 @@ func (w *WebSocketWrapper) GetWriter() WebApiWriter {
 func (w *WebSocketWrapper) Halt() bool {
 	f := func(timeOut time.Duration) bool {
 		if timeOut != 0 {
-			_ = w.conn.SetReadDeadline(time.Now().Add(timeOut))
+			_ = w.conn.SetReadDeadline(time.Now().Add(timeOut / 2))
 		} else {
 			// Stop the read loop
 			if w.cancel != nil {
 				w.cancel()
 			}
 		}
-		return w.WaitAllLoops(w.timeout)
+		ok := w.WaitAllLoops(w.timeout)
+		w.conn.SetReadDeadline(time.Time{})
+		return ok
 	}
 	if !f(0) {
 		return f(w.timeout)

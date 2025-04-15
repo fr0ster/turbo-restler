@@ -6,12 +6,14 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -82,10 +84,8 @@ func TestReadWrite(t *testing.T) {
 	}))
 	defer cleanup()
 
-	conn, _, err := websocket.DefaultDialer.Dial(u, nil)
+	sw, err := web_socket.NewWebSocketWrapper(websocket.DefaultDialer, u)
 	require.NoError(t, err)
-
-	sw := web_socket.NewWebSocketWrapper(conn)
 	sw.SetMessageLogger(func(evt web_socket.LogRecord) {
 		if evt.Err != nil {
 			fmt.Println(">>> ERROR:", evt.Err)
@@ -171,10 +171,8 @@ func TestPingPongTimeoutClose(t *testing.T) {
 	defer cleanup()
 
 	// ✅ Client connection
-	conn, _, err := websocket.DefaultDialer.Dial(u, nil)
+	sw, err := web_socket.NewWebSocketWrapper(websocket.DefaultDialer, u)
 	require.NoError(t, err)
-
-	sw := web_socket.NewWebSocketWrapper(conn)
 
 	// ✅ Channel to verify that Pong was sent
 	pongSent := make(chan struct{}, 1)
@@ -220,10 +218,8 @@ func TestConcurrentConsumers(t *testing.T) {
 	}))
 	defer cleanup()
 
-	conn, _, err := websocket.DefaultDialer.Dial(u, nil)
+	sw, err := web_socket.NewWebSocketWrapper(websocket.DefaultDialer, u)
 	require.NoError(t, err)
-
-	sw := web_socket.NewWebSocketWrapper(conn)
 	sw.SetMessageLogger(func(evt web_socket.LogRecord) {
 		if evt.Err != nil {
 			fmt.Println(">>> ERROR:", evt.Err)
@@ -319,10 +315,8 @@ func TestPingPongWithTimeoutEnforcedByServer(t *testing.T) {
 	}))
 	defer cleanup()
 
-	conn, _, err := websocket.DefaultDialer.Dial(u, nil)
+	sw, err := web_socket.NewWebSocketWrapper(websocket.DefaultDialer, u)
 	require.NoError(t, err)
-
-	sw := web_socket.NewWebSocketWrapper(conn)
 	seen := false
 	sw.SetMessageLogger(func(evt web_socket.LogRecord) {
 		if evt.Err != nil {
@@ -357,10 +351,8 @@ func TestManyConcurrentConsumers(t *testing.T) {
 	}))
 	defer cleanup()
 
-	conn, _, err := websocket.DefaultDialer.Dial(u, nil)
+	sw, err := web_socket.NewWebSocketWrapper(websocket.DefaultDialer, u)
 	require.NoError(t, err)
-
-	sw := web_socket.NewWebSocketWrapper(conn)
 	sw.Open()
 
 	n := 100
@@ -402,10 +394,8 @@ func TestNoPongServerClosesConnection(t *testing.T) {
 	}))
 	defer cleanup()
 
-	conn, _, err := websocket.DefaultDialer.Dial(u, nil)
+	sw, err := web_socket.NewWebSocketWrapper(websocket.DefaultDialer, u)
 	require.NoError(t, err)
-
-	sw := web_socket.NewWebSocketWrapper(conn)
 	sw.Open()
 
 	done := make(chan struct{})
@@ -447,10 +437,8 @@ func TestWebSocketWrapper_GetReaderWriter(t *testing.T) {
 
 	// Prepare client connection
 	wsURL := "ws" + s.URL[4:] // replace http -> ws
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
-	assert.NoError(t, err)
-
-	wrapper := web_socket.NewWebSocketWrapper(conn)
+	wrapper, err := web_socket.NewWebSocketWrapper(websocket.DefaultDialer, wsURL)
+	require.NoError(t, err)
 
 	reader := wrapper.GetReader()
 	writer := wrapper.GetWriter()
@@ -458,7 +446,7 @@ func TestWebSocketWrapper_GetReaderWriter(t *testing.T) {
 	err = writer.WriteMessage(websocket.TextMessage, []byte("test-payload"))
 	assert.NoError(t, err)
 
-	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	wrapper.SetTimeout(2 * time.Second)
 	mt, msg, err := reader.ReadMessage()
 	assert.NoError(t, err)
 	assert.Equal(t, websocket.TextMessage, mt)
@@ -478,10 +466,8 @@ func TestMessageLoggerCalled(t *testing.T) {
 	}))
 	defer cleanup()
 
-	conn, _, err := websocket.DefaultDialer.Dial(u, nil)
+	sw, err := web_socket.NewWebSocketWrapper(websocket.DefaultDialer, u)
 	require.NoError(t, err)
-
-	sw := web_socket.NewWebSocketWrapper(conn)
 	sw.Open()
 
 	logged := make(chan web_socket.LogRecord, 1)
@@ -517,10 +503,8 @@ func TestSubscribeUnsubscribe(t *testing.T) {
 	}))
 	defer cleanup()
 
-	conn, _, err := websocket.DefaultDialer.Dial(u, nil)
+	sw, err := web_socket.NewWebSocketWrapper(websocket.DefaultDialer, u)
 	require.NoError(t, err)
-
-	sw := web_socket.NewWebSocketWrapper(conn)
 	sw.Open()
 
 	called := make(chan string, 2)
@@ -578,10 +562,8 @@ func TestSendWithSendResult(t *testing.T) {
 	}))
 	defer cleanup()
 
-	conn, _, err := websocket.DefaultDialer.Dial(u, nil)
+	sw, err := web_socket.NewWebSocketWrapper(websocket.DefaultDialer, u)
 	require.NoError(t, err)
-
-	sw := web_socket.NewWebSocketWrapper(conn)
 	sw.Open()
 	<-sw.Started()
 
@@ -615,10 +597,8 @@ func TestSendWithAwaitCallback(t *testing.T) {
 	}))
 	defer cleanup()
 
-	conn, _, err := websocket.DefaultDialer.Dial(u, nil)
+	sw, err := web_socket.NewWebSocketWrapper(websocket.DefaultDialer, u)
 	require.NoError(t, err)
-
-	sw := web_socket.NewWebSocketWrapper(conn)
 	sw.Open()
 
 	awaitCalled := make(chan error, 1)
@@ -655,10 +635,8 @@ func TestHandlerPanic(t *testing.T) {
 	}))
 	defer cleanup()
 
-	conn, _, err := websocket.DefaultDialer.Dial(u, nil)
+	sw, err := web_socket.NewWebSocketWrapper(websocket.DefaultDialer, u)
 	require.NoError(t, err)
-
-	sw := web_socket.NewWebSocketWrapper(conn)
 	sw.Open()
 
 	// channel for notifying about panic
@@ -699,10 +677,8 @@ func TestHTimeOuts(t *testing.T) {
 	}))
 	defer cleanup()
 
-	conn, _, err := websocket.DefaultDialer.Dial(u, nil)
+	sw, err := web_socket.NewWebSocketWrapper(websocket.DefaultDialer, u)
 	require.NoError(t, err)
-
-	sw := web_socket.NewWebSocketWrapper(conn)
 	sw.Open()
 	<-sw.Started()
 
@@ -731,11 +707,9 @@ func TestReconnect(t *testing.T) {
 	}))
 	defer cleanup()
 
-	conn, _, err := websocket.DefaultDialer.Dial(u, nil)
+	sw, err := web_socket.NewWebSocketWrapper(websocket.DefaultDialer, u)
 	require.NoError(t, err)
-
-	sw := web_socket.NewWebSocketWrapper(conn)
-	sw.SetTimeout(1000 * time.Millisecond)
+	sw.SetTimeout(100 * time.Millisecond)
 	sw.SetMessageLogger(func(evt web_socket.LogRecord) {
 		if evt.Err != nil {
 			// fmt.Println(">>> ERROR:", evt.Err)
@@ -772,4 +746,12 @@ func TestReconnect(t *testing.T) {
 	sw.Close()
 	<-sw.Done()
 
+}
+
+func init() {
+	logrus.SetLevel(logrus.DebugLevel)
+	logrus.SetFormatter(&logrus.TextFormatter{
+		FullTimestamp: true,
+	})
+	logrus.SetOutput(os.Stdout)
 }
