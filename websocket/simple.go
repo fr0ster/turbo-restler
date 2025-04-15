@@ -70,7 +70,6 @@ func (w *WebSocketWrapper) readLoop() {
 		// 🔽 Перевіримо ще раз — **readLoopStopper** могло бути закрито під час читання
 		select {
 		case <-w.readLoopStopper:
-			_ = w.conn.SetReadDeadline(time.Time{})
 			_, body, err := w.conn.ReadMessage()
 			if err != nil {
 				logrus.Errorf("ReadMessage final error: %v", err)
@@ -97,13 +96,22 @@ func (w *WebSocketWrapper) Open() {
 	<-w.readLoopStarted
 }
 func (w *WebSocketWrapper) Halt() {
-	// Stop the read loop
-	close(w.readLoopStopper)
-	select {
-	case <-w.readLoopDone:
-	case <-time.After(2 * time.Second):
-		logrus.Warn("Read loop did not finish in time")
-		w.conn.SetReadDeadline(time.Now().Add(1000 * time.Millisecond))
+	f := func(timeOut time.Duration) bool {
+		if timeOut != 0 {
+			_ = w.conn.SetReadDeadline(time.Now().Add(timeOut))
+		} else {
+			// Stop the read loop
+			close(w.readLoopStopper)
+		}
+		select {
+		case <-w.readLoopDone:
+			return true
+		case <-time.After(2 * time.Second):
+			return false
+		}
+	}
+	if !f(0) {
+		f(200 * time.Millisecond)
 	}
 }
 func (w *WebSocketWrapper) Close() {

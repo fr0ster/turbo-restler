@@ -735,11 +735,10 @@ func TestReconnect(t *testing.T) {
 	require.NoError(t, err)
 
 	sw := web_socket.NewWebSocketWrapper(conn)
-	sw.SetReadTimeout(1500 * time.Millisecond)
-	sw.SetWriteTimeout(1500 * time.Millisecond)
+	sw.SetTimeout(1000 * time.Millisecond)
 	sw.SetMessageLogger(func(evt web_socket.LogRecord) {
 		if evt.Err != nil {
-			fmt.Println(">>> ERROR:", evt.Err)
+			// fmt.Println(">>> ERROR:", evt.Err)
 		} else {
 			fmt.Println(">>> MESSAGE:", string(evt.Body))
 		}
@@ -759,12 +758,12 @@ func TestReconnect(t *testing.T) {
 
 	time.Sleep(100 * time.Millisecond)
 
-	// sw.Halt()
+	ok := sw.Halt()
+	assert.True(t, ok, "Halt should return true")
 	// sw.WaitAllLoops(1 * time.Second)
 
-	// sw.Resume()
-	// // sw.Open()
-	// <-sw.Started()
+	sw.Resume()
+	<-sw.Started()
 
 	require.NoError(t, sw.Send(web_socket.WriteEvent{Body: []byte("hello2")}))
 

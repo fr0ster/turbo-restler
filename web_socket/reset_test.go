@@ -56,20 +56,19 @@ func TestWebSocketWrapper_SubscribeLifecycle(t *testing.T) {
 
 	// Phase 1: Initial lifecycle
 	sw := web_socket.NewWebSocketWrapper(dial())
+	sw.SetTimeout(500 * time.Millisecond)
 	sw.Open()
 	<-sw.Started()
 	sw.SetPingHandler(func(string) error {
 		return sw.GetControl().WriteControl(websocket.PongMessage, []byte("pong"), time.Now().Add(time.Second))
 	})
 	verifyMessage(sw, "first")
-	sw.Close()
+	ok := sw.Halt()
 	<-sw.Done()
-	ok := sw.WaitAllLoops(2 * time.Second)
 	require.True(t, ok)
 
 	// Phase 2: Reset and reconnect
 	sw.Resume()
-	sw.Open()
 	<-sw.Started()
 	verifyMessage(sw, "second")
 	sw.Close()
