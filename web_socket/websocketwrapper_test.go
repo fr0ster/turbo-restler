@@ -762,7 +762,7 @@ func TestLoops(t *testing.T) {
 	u, cleanup := StartWebSocketTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
 		if err != nil {
-			t.Fatalf("Upgrade failed: %v", err)
+			t.Fatalf("❌ Upgrade failed: %v", err)
 		}
 		defer conn.Close()
 
@@ -777,7 +777,7 @@ func TestLoops(t *testing.T) {
 			case <-ticker.C:
 				err := conn.WriteMessage(websocket.TextMessage, []byte("ping from server"))
 				if err != nil {
-					t.Logf("Server write error: %v", err)
+					fmt.Printf("❌ Server write error: %v\n", err)
 					return
 				}
 			}
@@ -789,21 +789,22 @@ func TestLoops(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create WebSocketWrapper: %v", err)
 	}
+	ws.SetTimeout(10 * time.Millisecond)
 
 	ws.Subscribe(func(evt web_socket.MessageEvent) {
 		if evt.Kind == web_socket.KindData {
-			t.Logf("Data: %s", string(evt.Body))
+			fmt.Printf("✅ Data: %s\n", string(evt.Body))
 		} else if evt.Kind == web_socket.KindError {
-			t.Logf("Error: %v", evt.Error)
+			fmt.Printf("🛑 Error: %v\n", evt.Error)
 		}
 	})
 
 	// Просто відкриваємо і чекаємо трохи
 	ws.Resume()
-	time.Sleep(3 * time.Second)
+	time.Sleep(1 * time.Second)
 	ws.Halt()
 	ws.Resume()
-	time.Sleep(3 * time.Second)
+	time.Sleep(1 * time.Second)
 	ws.Close()
 }
 

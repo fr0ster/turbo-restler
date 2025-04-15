@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/sirupsen/logrus"
 )
 
 type LogOp string
@@ -48,41 +47,6 @@ type WriteEvent struct {
 	ErrChan  chan error
 }
 
-type WebApiControlWriter interface {
-	WriteControl(messageType int, data []byte, deadline time.Time) error
-}
-
-type WebApiReader interface {
-	ReadMessage() (int, []byte, error)
-}
-
-type WebApiWriter interface {
-	WriteMessage(messageType int, data []byte) error
-}
-
-type WebSocketInterface interface {
-	Open()
-	Halt() bool
-	Close() error
-	Send(writeEvent WriteEvent) error
-	Subscribe(f func(MessageEvent)) int
-	Unsubscribe(id int)
-	UnsubscribeAll()
-	SetMessageLogger(f func(LogRecord))
-	SetPingHandler(f func(string) error)
-	SetReadTimeout(time.Duration)
-	SetWriteTimeout(time.Duration)
-	GetTimeout() time.Duration
-	SetTimeout(time.Duration)
-	GetControl() WebApiControlWriter
-	GetReader() WebApiReader
-	GetWriter() WebApiWriter
-	Started() <-chan struct{}
-	WaitAllLoops(timeout time.Duration) bool
-	Resume()
-	Done() <-chan struct{}
-}
-
 type WebSocketWrapper struct {
 	conn   *websocket.Conn
 	dialer *websocket.Dialer
@@ -95,10 +59,8 @@ type WebSocketWrapper struct {
 	writeMu  sync.Mutex
 	sendChan chan WriteEvent
 
-	readTimeout  *time.Duration
-	writeTimeout *time.Duration
-	timeoutMu    sync.RWMutex
-	timeout      time.Duration
+	timeoutMu sync.RWMutex
+	timeout   time.Duration
 
 	readIsWorked  atomic.Bool
 	writeIsWorked atomic.Bool
@@ -111,7 +73,6 @@ type WebSocketWrapper struct {
 	subsMu   sync.RWMutex
 	subs     map[int]func(MessageEvent)
 	subIDGen atomic.Int32
-	// readPause atomic.Bool
 
 	readLoopDone  chan struct{}
 	writeLoopDone chan struct{}
@@ -144,32 +105,22 @@ func (w *WebSocketWrapper) SetPingHandler(f func(string) error) {
 	w.conn.SetPingHandler(f)
 }
 
-func (w *WebSocketWrapper) GetReadTimeout() time.Duration {
-	if w.readTimeout == nil {
-		return 0
-	}
-	return *w.readTimeout
-}
-
 func (w *WebSocketWrapper) SetReadTimeout(timeout time.Duration) {
-	if w.readTimeout == nil && timeout != 0 {
-		w.readTimeout = new(time.Duration)
+	if timeout != 0 {
+		w.conn.SetReadDeadline(time.Now().Add(timeout))
+	} else {
+		// Зняти deadline, щоб ReadMessage блокувався
+		w.conn.SetReadDeadline(time.Time{})
 	}
-	*w.readTimeout = timeout
-}
-
-func (w *WebSocketWrapper) GetWriteTimeout() time.Duration {
-	if w.writeTimeout == nil && w.readTimeout == nil {
-		return 0
-	}
-	return *w.writeTimeout
 }
 
 func (w *WebSocketWrapper) SetWriteTimeout(timeout time.Duration) {
-	if w.writeTimeout == nil {
-		w.writeTimeout = new(time.Duration)
+	if timeout != 0 {
+		w.conn.SetWriteDeadline(time.Now().Add(timeout))
+	} else {
+		// Зняти deadline, щоб WriteMessage блокувався
+		w.conn.SetWriteDeadline(time.Time{})
 	}
-	*w.writeTimeout = timeout
 }
 
 func (w *WebSocketWrapper) GetTimeout() time.Duration {
@@ -276,13 +227,6 @@ func (w *WebSocketWrapper) readLoop(ctx context.Context) {
 		}
 
 		w.readMu.Lock()
-		if w.GetReadTimeout() != 0 {
-			w.conn.SetReadDeadline(time.Now().Add(w.GetReadTimeout()))
-		} else {
-			// ❗️ Зняти deadline, щоб ReadMessage блокувався
-			w.conn.SetReadDeadline(time.Time{})
-		}
-		logrus.Debugf("Timeout: %v", w.GetReadTimeout())
 		typ, msg, err := w.conn.ReadMessage()
 		w.readMu.Unlock()
 
@@ -332,9 +276,6 @@ func (w *WebSocketWrapper) writeLoop(ctx context.Context) {
 			return
 		case evt := <-w.sendChan:
 			w.writeMu.Lock()
-			if w.writeTimeout != nil {
-				_ = w.conn.SetWriteDeadline(time.Now().Add(*w.writeTimeout))
-			}
 			err := w.conn.WriteMessage(websocket.TextMessage, evt.Body)
 			w.writeMu.Unlock()
 
@@ -353,13 +294,14 @@ func (w *WebSocketWrapper) writeLoop(ctx context.Context) {
 }
 
 func (w *WebSocketWrapper) Resume() {
+	w.WaitAllLoops(w.GetTimeout())
 	w.readLoopDone = make(chan struct{}, 1)
 	w.writeLoopDone = make(chan struct{}, 1)
 	w.started = make(chan struct{})
 	w.startedOnce = sync.Once{}
+	w.SetReadTimeout(0)
+	w.SetWriteTimeout(0)
 	w.ctx, w.cancel = context.WithCancel(context.Background())
-	w.conn.SetReadDeadline(time.Time{})
-	w.conn.SetWriteDeadline(time.Time{})
 	go w.readLoop(w.ctx)
 	go w.writeLoop(w.ctx)
 	w.startedOnce.Do(func() { close(w.started) })
@@ -400,8 +342,8 @@ func (w *WebSocketWrapper) GetWriter() WebApiWriter {
 func (w *WebSocketWrapper) Halt() bool {
 	f := func(timeOut time.Duration) bool {
 		if timeOut != 0 {
-			_ = w.conn.SetReadDeadline(time.Now().Add(timeOut / 2))
-			_ = w.conn.SetWriteDeadline(time.Now().Add(timeOut / 2))
+			w.SetReadTimeout(timeOut / 2)
+			w.SetWriteTimeout(timeOut / 2)
 		} else {
 			// Stop the read loop
 			if w.cancel != nil {
@@ -409,8 +351,8 @@ func (w *WebSocketWrapper) Halt() bool {
 			}
 		}
 		ok := w.WaitAllLoops(timeOut)
-		w.conn.SetReadDeadline(time.Time{})
-		w.conn.SetWriteDeadline(time.Time{})
+		w.SetReadTimeout(0)
+		w.SetWriteTimeout(0)
 		return ok
 	}
 	if !f(0) {
@@ -431,7 +373,18 @@ func (w *WebSocketWrapper) Close() error {
 		websocket.FormatCloseMessage(websocket.CloseNormalClosure, "client closing"))
 
 	// Дай серверу час відповісти
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(w.GetTimeout())
 
 	return w.conn.Close()
+}
+
+func (w *WebSocketWrapper) Reconnect() error {
+	conn, _, err := w.dialer.Dial(w.url, nil)
+	if err != nil {
+		return err
+	}
+	old := w.conn
+	w.conn = conn
+	_ = old.Close()
+	return nil
 }

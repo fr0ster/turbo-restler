@@ -76,6 +76,7 @@ func TestWebSocketWrapper_SubscribeLifecycle(t *testing.T) {
 	require.True(t, ok)
 
 	// Phase 2: Reset and reconnect
+	sw.Reconnect()
 	sw.Resume()
 	<-sw.Started()
 	time.Sleep(1000 * time.Millisecond)
@@ -178,6 +179,7 @@ func Test_ResumeWithPingHandler(t *testing.T) {
 	<-sw.Done()
 
 	// Phase 2
+	sw.Reconnect()
 	sw.Resume()
 	<-sw.Started()
 	require.NoError(t, sw.Send(web_socket.WriteEvent{Body: []byte("second")}))
@@ -228,6 +230,7 @@ func TestLoopsV2(t *testing.T) {
 	defer cleanup()
 
 	ws, err := web_socket.NewWebSocketWrapper(websocket.DefaultDialer, u)
+	ws.SetTimeout(50 * time.Millisecond)
 	if err != nil {
 		t.Fatalf("Failed to create WebSocketWrapper: %v", err)
 	}
@@ -256,10 +259,10 @@ func TestLoopsV2(t *testing.T) {
 			t.Logf("Error V2: %v", evt.Error)
 		}
 	})
-	time.Sleep(3 * time.Second)
+	time.Sleep(1 * time.Second)
 	ws.Halt()
 	ws.Resume()
-	time.Sleep(3 * time.Second)
+	time.Sleep(1 * time.Second)
 	ws.Close()
 }
 
@@ -354,6 +357,7 @@ func Test_ResumeWithPingHandlerV2(t *testing.T) {
 	t.Log("HALT completed")
 
 	t.Log("PHASE 2: resuming")
+	sw.Reconnect()
 	sw.Resume()
 	<-sw.Started()
 	t.Log("PHASE 2: resumed")
@@ -468,6 +472,7 @@ func Test_ResumeWithPingHandlerV3(t *testing.T) {
 	t.Log("HALT completed")
 
 	t.Log("PHASE 2: resuming")
+	sw.Reconnect()
 	sw.Resume()
 	<-sw.Started()
 	t.Log("PHASE 2: resumed")
