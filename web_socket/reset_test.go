@@ -421,7 +421,7 @@ func Test_ResumeWithPingHandlerV3(t *testing.T) {
 	}))
 	defer cleanup()
 
-	timeout := 500 * time.Millisecond
+	timeout := 100 * time.Millisecond
 	dial := func() (d *websocket.Dialer, url string) {
 		return websocket.DefaultDialer, u
 	}

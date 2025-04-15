@@ -359,6 +359,7 @@ func (w *WebSocketWrapper) Resume() {
 	w.startedOnce = sync.Once{}
 	w.ctx, w.cancel = context.WithCancel(context.Background())
 	w.conn.SetReadDeadline(time.Time{})
+	w.conn.SetWriteDeadline(time.Time{})
 	go w.readLoop(w.ctx)
 	go w.writeLoop(w.ctx)
 	w.startedOnce.Do(func() { close(w.started) })
@@ -400,6 +401,7 @@ func (w *WebSocketWrapper) Halt() bool {
 	f := func(timeOut time.Duration) bool {
 		if timeOut != 0 {
 			_ = w.conn.SetReadDeadline(time.Now().Add(timeOut / 2))
+			_ = w.conn.SetWriteDeadline(time.Now().Add(timeOut / 2))
 		} else {
 			// Stop the read loop
 			if w.cancel != nil {
@@ -408,6 +410,7 @@ func (w *WebSocketWrapper) Halt() bool {
 		}
 		ok := w.WaitAllLoops(timeOut)
 		w.conn.SetReadDeadline(time.Time{})
+		w.conn.SetWriteDeadline(time.Time{})
 		return ok
 	}
 	if !f(0) {
