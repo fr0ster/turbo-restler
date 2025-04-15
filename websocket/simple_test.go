@@ -102,5 +102,7 @@ func TestLoops(t *testing.T) {
 	ws.Open()
 	time.Sleep(3 * time.Second)
 	ws.Halt()
+	ws.Open()
+	time.Sleep(3 * time.Second)
 	ws.Close()
 }

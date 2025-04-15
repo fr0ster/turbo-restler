@@ -68,7 +68,7 @@ func TestWebSocketWrapper_SubscribeLifecycle(t *testing.T) {
 	require.True(t, ok)
 
 	// Phase 2: Reset and reconnect
-	sw.ResetLoops()
+	sw.Resume()
 	sw.Open()
 	<-sw.Started()
 	verifyMessage(sw, "second")

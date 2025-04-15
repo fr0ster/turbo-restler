@@ -61,6 +61,7 @@ type WebApiWriter interface {
 
 type WebSocketInterface interface {
 	Open()
+	Halt()
 	Close()
 	Send(writeEvent WriteEvent) error
 	Subscribe(f func(MessageEvent)) int
@@ -74,7 +75,7 @@ type WebSocketInterface interface {
 	GetWriter() WebApiWriter
 	Started() <-chan struct{}
 	WaitAllLoops(timeout time.Duration) bool
-	ResetLoops()
+	Resume()
 	Done() <-chan struct{}
 }
 
@@ -176,6 +177,10 @@ func (w *WebSocketWrapper) Done() <-chan struct{} {
 }
 
 func (w *WebSocketWrapper) Open() {
+	// Якщо цикли вже працюють — нічого не робимо
+	if w.readIsWorked.Load() || w.writeIsWorked.Load() {
+		return
+	}
 	w.ctx, w.cancel = context.WithCancel(context.Background())
 	go w.readLoop(w.ctx)
 	go w.writeLoop(w.ctx)
@@ -208,6 +213,45 @@ func (w *WebSocketWrapper) readLoop(ctx context.Context) {
 
 		select {
 		case <-ctx.Done():
+			func() {
+				_ = w.conn.SetReadDeadline(time.Time{})
+				typ, msg, err := w.conn.ReadMessage()
+				if w.logger != nil {
+					w.logger(LogRecord{Op: OpReceive, Body: msg, Err: err})
+				}
+
+				if err != nil {
+					var closeErr *websocket.CloseError
+					if errors.As(err, &closeErr) {
+						// WebSocket was closed with a specific code
+						w.emit(MessageEvent{Kind: KindError, Error: err})
+						return
+					}
+
+					// Check for "use of closed network connection"
+					if strings.Contains(err.Error(), "use of closed network connection") {
+						w.emit(MessageEvent{Kind: KindError, Error: err})
+						return
+					}
+
+					// Check for temporary errors
+					var netErr net.Error
+					if errors.As(err, &netErr) && netErr.Timeout() {
+						// This can be ignored and we can continue
+						return
+					}
+
+					// All other errors — propagate and exit
+					w.emit(MessageEvent{Kind: KindError, Error: err})
+					return
+				}
+
+				kind := KindControl
+				if typ == websocket.TextMessage || typ == websocket.BinaryMessage {
+					kind = KindData
+				}
+				w.emit(MessageEvent{Kind: kind, Body: msg})
+			}()
 			return
 		default:
 		}
@@ -226,25 +270,25 @@ func (w *WebSocketWrapper) readLoop(ctx context.Context) {
 		if err != nil {
 			var closeErr *websocket.CloseError
 			if errors.As(err, &closeErr) {
-				// WebSocket закритий певним кодом
+				// WebSocket was closed with a specific code
 				w.emit(MessageEvent{Kind: KindError, Error: err})
 				return
 			}
 
-			// Перевіримо на use of closed network connection
+			// Check for "use of closed network connection"
 			if strings.Contains(err.Error(), "use of closed network connection") {
 				w.emit(MessageEvent{Kind: KindError, Error: err})
 				return
 			}
 
-			// Перевірка на тимчасові помилки
+			// Check for temporary errors
 			var netErr net.Error
 			if errors.As(err, &netErr) && netErr.Timeout() {
-				// Це можна проігнорувати і продовжити
+				// This can be ignored and we can continue
 				continue
 			}
 
-			// Усі інші помилки — передаємо і виходимо
+			// All other errors — propagate and exit
 			w.emit(MessageEvent{Kind: KindError, Error: err})
 			return
 		}
@@ -298,9 +342,15 @@ func (w *WebSocketWrapper) ResumeLoops() {
 	w.readPause.Store(false)
 }
 
-func (w *WebSocketWrapper) ResetLoops() {
-	w.PauseLoops()
-	w.ResumeLoops()
+func (w *WebSocketWrapper) Resume() {
+	w.readLoopDone = make(chan struct{}, 1)
+	w.writeLoopDone = make(chan struct{}, 1)
+	w.started = make(chan struct{})
+	w.startedOnce = sync.Once{}
+	w.ctx, w.cancel = context.WithCancel(context.Background())
+	go w.readLoop(w.ctx)
+	go w.writeLoop(w.ctx)
+	w.startedOnce.Do(func() { close(w.started) })
 }
 
 func (w *WebSocketWrapper) WaitAllLoops(timeout time.Duration) bool {
@@ -329,6 +379,13 @@ func (w *WebSocketWrapper) GetReader() WebApiReader {
 
 func (w *WebSocketWrapper) GetWriter() WebApiWriter {
 	return w.conn
+}
+
+func (w *WebSocketWrapper) Halt() {
+	if w.cancel != nil {
+		w.cancel()
+	}
+	_ = w.WaitAllLoops(2 * time.Second)
 }
 
 func (w *WebSocketWrapper) Close() {
