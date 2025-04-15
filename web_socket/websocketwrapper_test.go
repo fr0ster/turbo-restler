@@ -748,6 +748,55 @@ func TestReconnect(t *testing.T) {
 
 }
 
+func TestLoops(t *testing.T) {
+	u, cleanup := StartWebSocketTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+		if err != nil {
+			t.Fatalf("Upgrade failed: %v", err)
+		}
+		defer conn.Close()
+
+		done := r.Context().Done()
+		ticker := time.NewTicker(50 * time.Millisecond)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				err := conn.WriteMessage(websocket.TextMessage, []byte("ping from server"))
+				if err != nil {
+					t.Logf("Server write error: %v", err)
+					return
+				}
+			}
+		}
+	}))
+	defer cleanup()
+
+	ws, err := web_socket.NewWebSocketWrapper(websocket.DefaultDialer, u)
+	if err != nil {
+		t.Fatalf("Failed to create WebSocketWrapper: %v", err)
+	}
+
+	ws.Subscribe(func(evt web_socket.MessageEvent) {
+		if evt.Kind == web_socket.KindData {
+			t.Logf("Data: %s", string(evt.Body))
+		} else if evt.Kind == web_socket.KindError {
+			t.Logf("Error: %v", evt.Error)
+		}
+	})
+
+	// Просто відкриваємо і чекаємо трохи
+	ws.Resume()
+	time.Sleep(3 * time.Second)
+	ws.Halt()
+	ws.Resume()
+	time.Sleep(3 * time.Second)
+	ws.Close()
+}
+
 func init() {
 	logrus.SetLevel(logrus.DebugLevel)
 	logrus.SetFormatter(&logrus.TextFormatter{

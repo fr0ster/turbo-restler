@@ -66,6 +66,7 @@ type WebSocketInterface interface {
 	Send(writeEvent WriteEvent) error
 	Subscribe(f func(MessageEvent)) int
 	Unsubscribe(id int)
+	UnsubscribeAll()
 	SetMessageLogger(f func(LogRecord))
 	SetPingHandler(f func(string) error)
 	SetReadTimeout(time.Duration)
@@ -169,6 +170,12 @@ func (w *WebSocketWrapper) Unsubscribe(id int) {
 	w.subsMu.Lock()
 	delete(w.subs, id)
 	w.subsMu.Unlock()
+}
+
+func (w *WebSocketWrapper) UnsubscribeAll() {
+	w.subsMu.Lock()
+	defer w.subsMu.Unlock()
+	w.subs = make(map[int]func(MessageEvent))
 }
 
 func (w *WebSocketWrapper) emit(evt MessageEvent) {
@@ -389,5 +396,13 @@ func (w *WebSocketWrapper) Close() error {
 	if !ok {
 		return errors.New("timeout waiting for loops to finish")
 	}
+
+	// 🔽 Надішли CloseMessage перед закриттям TCP-з'єднання
+	_ = w.conn.WriteMessage(websocket.CloseMessage,
+		websocket.FormatCloseMessage(websocket.CloseNormalClosure, "client closing"))
+
+	// Дай серверу час відповісти
+	time.Sleep(100 * time.Millisecond)
+
 	return w.conn.Close()
 }

@@ -98,6 +98,14 @@ func TestLoops(t *testing.T) {
 		t.Fatalf("Failed to create WebSocketWrapper: %v", err)
 	}
 
+	ws.Subscribe(func(evt websocket.MessageEvent) {
+		if evt.Kind == websocket.KindData {
+			t.Logf("Data: %s", string(evt.Body))
+		} else if evt.Kind == websocket.KindError {
+			t.Logf("Error: %v", evt.Error)
+		}
+	})
+
 	// Просто відкриваємо і чекаємо трохи
 	ws.Open()
 	time.Sleep(3 * time.Second)
@@ -105,4 +113,11 @@ func TestLoops(t *testing.T) {
 	ws.Open()
 	time.Sleep(3 * time.Second)
 	ws.Close()
+}
+
+func init() {
+	logrus.SetLevel(logrus.InfoLevel)
+	logrus.SetFormatter(&logrus.TextFormatter{
+		FullTimestamp: true,
+	})
 }

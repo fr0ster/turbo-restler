@@ -1,6 +1,8 @@
 package websocket
 
 import (
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -15,14 +17,28 @@ func init() {
 	logrus.SetLevel(logrus.DebugLevel)
 }
 
+type MessageKind int
+
+const (
+	KindData MessageKind = iota
+	KindError
+)
+
+type MessageEvent struct {
+	Kind  MessageKind
+	Body  []byte
+	Error error
+}
+
 type WebSocketWrapper struct {
 	conn            *websocket.Conn
 	readLoopStopper chan struct{}
 	readLoopDone    chan struct{}
 	readLoopStarted chan struct{}
-	// writeLoopStopper chan struct{}
-	// writeLoopDone    chan struct{}
-	// writeLoopStarted chan struct{}
+
+	subs     map[int]func(MessageEvent)
+	subsMu   sync.Mutex
+	subIDGen atomic.Int32
 }
 
 func New(d *websocket.Dialer, url string) (*WebSocketWrapper, error) {
@@ -35,15 +51,10 @@ func New(d *websocket.Dialer, url string) (*WebSocketWrapper, error) {
 		readLoopStopper: make(chan struct{}, 1),
 		readLoopDone:    make(chan struct{}, 1),
 		readLoopStarted: make(chan struct{}, 1),
-		// writeLoopStopper: make(chan struct{}),
-		// writeLoopDone:    make(chan struct{}),
-		// writeLoopStarted: make(chan struct{}),
+		subs:            make(map[int]func(MessageEvent)),
 	}, nil
 }
 
-// Privet functions
-
-// read loops
 func (w *WebSocketWrapper) readLoop() {
 	w.readLoopStarted <- struct{}{}
 	for {
@@ -54,28 +65,18 @@ func (w *WebSocketWrapper) readLoop() {
 		default:
 		}
 
-		// err := w.conn.SetReadDeadline(time.Now().Add(1000 * time.Millisecond))
-		// if err != nil {
-		// 	logrus.Errorf("SetReadDeadline error: %v", err)
-		// 	break
-		// }
-
 		_, body, err := w.conn.ReadMessage()
 		if err != nil {
 			logrus.Errorf("ReadMessage error: %v", err)
+			w.emitToSubscribers(MessageEvent{Kind: KindError, Error: err})
 			break
 		}
-		logrus.Debugf("Read message: %s", string(body))
 
-		// 🔽 Перевіримо ще раз — **readLoopStopper** могло бути закрито під час читання
+		logrus.Debugf("Read message: %s", string(body))
+		w.emitToSubscribers(MessageEvent{Kind: KindData, Body: body})
+
 		select {
 		case <-w.readLoopStopper:
-			_, body, err := w.conn.ReadMessage()
-			if err != nil {
-				logrus.Errorf("ReadMessage final error: %v", err)
-				break
-			}
-			logrus.Debugf("Read final message: %s", string(body))
 			w.readLoopDone <- struct{}{}
 			return
 		default:
@@ -85,22 +86,27 @@ func (w *WebSocketWrapper) readLoop() {
 	}
 }
 
-// Public functions
+func (w *WebSocketWrapper) emitToSubscribers(event MessageEvent) {
+	w.subsMu.Lock()
+	defer w.subsMu.Unlock()
+	for _, f := range w.subs {
+		go f(event) // notify each subscriber in a goroutine
+	}
+}
+
 func (w *WebSocketWrapper) Open() {
-	// Regenerate control channels
 	w.readLoopStopper = make(chan struct{}, 1)
 	w.readLoopDone = make(chan struct{}, 1)
 	w.readLoopStarted = make(chan struct{}, 1)
-	// Start the read loop
 	go w.readLoop()
 	<-w.readLoopStarted
 }
+
 func (w *WebSocketWrapper) Halt() {
 	f := func(timeOut time.Duration) bool {
 		if timeOut != 0 {
 			_ = w.conn.SetReadDeadline(time.Now().Add(timeOut))
 		} else {
-			// Stop the read loop
 			close(w.readLoopStopper)
 		}
 		select {
@@ -114,7 +120,21 @@ func (w *WebSocketWrapper) Halt() {
 		f(200 * time.Millisecond)
 	}
 }
+
 func (w *WebSocketWrapper) Close() {
-	// Close the connection
 	w.conn.Close()
+}
+
+func (w *WebSocketWrapper) Subscribe(f func(MessageEvent)) int {
+	id := int(w.subIDGen.Add(1))
+	w.subsMu.Lock()
+	w.subs[id] = f
+	w.subsMu.Unlock()
+	return id
+}
+
+func (w *WebSocketWrapper) Unsubscribe(id int) {
+	w.subsMu.Lock()
+	delete(w.subs, id)
+	w.subsMu.Unlock()
 }
