@@ -156,9 +156,9 @@ func Test_ResumeWithPingHandler(t *testing.T) {
 	<-sw.Started()
 
 	// Phase 1
-	sw.SetPingHandler(func(string) error {
-		return sw.GetControl().WriteControl(websocket.PongMessage, []byte("pong"), time.Now().Add(time.Second))
-	})
+	// sw.SetPingHandler(func(string) error {
+	// 	return sw.GetControl().WriteControl(websocket.PongMessage, []byte("pong"), time.Now().Add(time.Second))
+	// })
 	recv := make(chan string, 1)
 	sw.Subscribe(func(evt web_socket.MessageEvent) {
 		if evt.Kind == web_socket.KindData {
@@ -166,6 +166,7 @@ func Test_ResumeWithPingHandler(t *testing.T) {
 		}
 	})
 	require.NoError(t, sw.Send(web_socket.WriteEvent{Body: []byte("first")}))
+	time.Sleep(100 * time.Millisecond)
 	select {
 	case msg := <-recv:
 		require.Equal(t, "first", msg)
@@ -180,11 +181,12 @@ func Test_ResumeWithPingHandler(t *testing.T) {
 	sw.Resume()
 	<-sw.Started()
 	require.NoError(t, sw.Send(web_socket.WriteEvent{Body: []byte("second")}))
+	time.Sleep(100 * time.Millisecond)
 
-	// ✅ Якщо закоментувати наступний блок — test може впасти
-	sw.SetPingHandler(func(string) error {
-		return sw.GetControl().WriteControl(websocket.PongMessage, []byte("pong"), time.Now().Add(time.Second))
-	})
+	// // ✅ Якщо закоментувати наступний блок — test може впасти
+	// sw.SetPingHandler(func(string) error {
+	// 	return sw.GetControl().WriteControl(websocket.PongMessage, []byte("pong"), time.Now().Add(time.Second))
+	// })
 
 	require.NoError(t, sw.Send(web_socket.WriteEvent{Body: []byte("second")}))
 	select {
@@ -259,6 +261,229 @@ func TestLoopsV2(t *testing.T) {
 	ws.Resume()
 	time.Sleep(3 * time.Second)
 	ws.Close()
+}
+
+func Test_ResumeWithPingHandlerV2(t *testing.T) {
+	t.Log("=== START TEST ===")
+	u, cleanup := StartWebSocketTestServerV2(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, _ := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+		defer conn.Close()
+
+		t.Log("Server: connection upgraded")
+
+		done := r.Context().Done()
+		ticker := time.NewTicker(200 * time.Millisecond)
+		defer ticker.Stop()
+
+		go func() {
+			for {
+				select {
+				case <-done:
+					t.Log("Server: done in ping sender")
+					return
+				case <-ticker.C:
+					t.Log("Server: sending ping")
+					_ = conn.WriteControl(websocket.PingMessage, []byte("ping"), time.Now().Add(time.Second))
+				}
+			}
+		}()
+
+		for {
+			select {
+			case <-done:
+				t.Log("Server: done in read loop")
+				return
+			default:
+				typ, msg, err := conn.ReadMessage()
+				if err != nil {
+					t.Logf("Server: read error: %v", err)
+					return
+				}
+				t.Logf("Server: echoing: %s", string(msg))
+				time.Sleep(100 * time.Millisecond)
+				_ = conn.WriteMessage(typ, msg)
+			}
+		}
+	}))
+	defer cleanup()
+
+	timeout := 500 * time.Millisecond
+	dial := func() (d *websocket.Dialer, url string) {
+		return websocket.DefaultDialer, u
+	}
+
+	sw, err := web_socket.NewWebSocketWrapper(dial())
+	require.NoError(t, err)
+	sw.SetTimeout(timeout)
+
+	sw.SetMessageLogger(func(evt web_socket.LogRecord) {
+		if evt.Err != nil {
+			t.Logf("Client LOG [%s]: ERROR: %v", evt.Op, evt.Err)
+		} else {
+			t.Logf("Client LOG [%s]: %s", evt.Op, string(evt.Body))
+		}
+	})
+
+	t.Log("Opening connection...")
+	sw.Open()
+	<-sw.Started()
+
+	recv := make(chan string, 1)
+	sw.Subscribe(func(evt web_socket.MessageEvent) {
+		if evt.Kind == web_socket.KindData {
+			t.Logf("Client EVENT: DATA: %s", evt.Body)
+			recv <- string(evt.Body)
+		} else if evt.Kind == web_socket.KindError {
+			t.Logf("Client EVENT: ERROR: %v", evt.Error)
+		}
+	})
+
+	t.Log("PHASE 1: sending 'first'")
+	require.NoError(t, sw.Send(web_socket.WriteEvent{Body: []byte("first")}))
+	select {
+	case msg := <-recv:
+		require.Equal(t, "first", msg)
+		t.Log("PHASE 1: received 'first'")
+	case <-time.After(2 * timeout):
+		t.Fatal("timeout in phase 1")
+	}
+
+	t.Log("Halting...")
+	require.True(t, sw.Halt())
+	<-sw.Done()
+	t.Log("HALT completed")
+
+	t.Log("PHASE 2: resuming")
+	sw.Resume()
+	<-sw.Started()
+	t.Log("PHASE 2: resumed")
+
+	t.Log("PHASE 2: sending 'second'")
+	require.NoError(t, sw.Send(web_socket.WriteEvent{Body: []byte("second")}))
+	select {
+	case msg := <-recv:
+		require.Equal(t, "second", msg)
+		t.Log("PHASE 2: received 'second'")
+	case <-time.After(2 * timeout):
+		t.Fatal("timeout in phase 2")
+	}
+
+	t.Log("Closing...")
+	sw.Close()
+	<-sw.Done()
+	t.Log("=== END TEST ===")
+}
+
+func Test_ResumeWithPingHandlerV3(t *testing.T) {
+	t.Log("=== START TEST ===")
+
+	u, cleanup := StartWebSocketTestServerV2(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, _ := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+		defer conn.Close()
+		t.Log("Server: connection upgraded")
+
+		done := r.Context().Done()
+		ticker := time.NewTicker(200 * time.Millisecond)
+		defer ticker.Stop()
+
+		go func() {
+			for {
+				select {
+				case <-done:
+					return
+				case <-ticker.C:
+					t.Log("Server: sending ping")
+					_ = conn.WriteControl(websocket.PingMessage, []byte("ping"), time.Now().Add(time.Second))
+				}
+			}
+		}()
+
+		for {
+			select {
+			case <-done:
+				t.Log("Server: context done")
+				return
+			default:
+				t.Log("Server: waiting for message...")
+				typ, msg, err := conn.ReadMessage()
+				if err != nil {
+					t.Logf("Server: read error: %v", err)
+					return
+				}
+				t.Logf("Server: echoing: %s", string(msg))
+				err = conn.WriteMessage(typ, msg)
+				if err != nil {
+					t.Logf("Server: write error: %v", err)
+					return
+				}
+			}
+		}
+	}))
+	defer cleanup()
+
+	timeout := 500 * time.Millisecond
+	dial := func() (d *websocket.Dialer, url string) {
+		return websocket.DefaultDialer, u
+	}
+
+	sw, err := web_socket.NewWebSocketWrapper(dial())
+	require.NoError(t, err)
+	sw.SetTimeout(timeout)
+
+	sw.SetMessageLogger(func(evt web_socket.LogRecord) {
+		if evt.Err != nil {
+			t.Logf("Client LOG [%s]: ERROR: %v", evt.Op, evt.Err)
+		} else {
+			t.Logf("Client LOG [%s]: %s", evt.Op, string(evt.Body))
+		}
+	})
+
+	t.Log("Opening connection...")
+	sw.Open()
+	<-sw.Started()
+
+	recv := make(chan string, 1)
+	sw.Subscribe(func(evt web_socket.MessageEvent) {
+		if evt.Error != nil {
+			t.Logf("Client EVENT: ERROR: %v", evt.Error)
+			return
+		}
+		t.Logf("Client EVENT: DATA: %s", string(evt.Body))
+		recv <- string(evt.Body)
+	})
+
+	t.Log("PHASE 1: sending 'first'")
+	require.NoError(t, sw.Send(web_socket.WriteEvent{Body: []byte("first")}))
+	select {
+	case msg := <-recv:
+		require.Equal(t, "first", msg)
+		t.Log("PHASE 1: received 'first'")
+	case <-time.After(2 * timeout):
+		t.Fatal("timeout in phase 1")
+	}
+
+	t.Log("Halting...")
+	require.True(t, sw.Halt())
+	<-sw.Done()
+	t.Log("HALT completed")
+
+	t.Log("PHASE 2: resuming")
+	sw.Resume()
+	<-sw.Started()
+	t.Log("PHASE 2: resumed")
+
+	t.Log("PHASE 2: sending 'second'")
+	require.NoError(t, sw.Send(web_socket.WriteEvent{Body: []byte("second")}))
+	select {
+	case msg := <-recv:
+		require.Equal(t, "second", msg)
+		t.Log("PHASE 2: received 'second'")
+	case <-time.After(2 * timeout):
+		t.Fatal("timeout in phase 2")
+	}
+
+	sw.Close()
+	<-sw.Done()
 }
 
 func init() {

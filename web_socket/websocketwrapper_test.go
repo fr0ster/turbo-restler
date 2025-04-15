@@ -68,6 +68,15 @@ func StartWebSocketTestServer(handler http.Handler) (url string, cleanup func())
 func TestReadWrite(t *testing.T) {
 	u, cleanup := StartWebSocketTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, _ := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+
+		// ✅ Обробка закриття від клієнта
+		conn.SetCloseHandler(func(code int, text string) error {
+			fmt.Printf("🛑 Server got close frame: code=%d, text=%s\n", code, text)
+			msg := websocket.FormatCloseMessage(code, "")
+			_ = conn.WriteControl(websocket.CloseMessage, msg, time.Now().Add(time.Second))
+			return nil
+		})
+
 		done := r.Context().Done()
 		for {
 			select {
@@ -76,6 +85,7 @@ func TestReadWrite(t *testing.T) {
 			default:
 				type_, msg, err := conn.ReadMessage()
 				if err != nil {
+					fmt.Println("❌ Server read error:", err)
 					return
 				}
 				_ = conn.WriteMessage(type_, msg)
@@ -88,9 +98,9 @@ func TestReadWrite(t *testing.T) {
 	require.NoError(t, err)
 	sw.SetMessageLogger(func(evt web_socket.LogRecord) {
 		if evt.Err != nil {
-			fmt.Println(">>> ERROR:", evt.Err)
+			t.Logf(">>> OP: %s ERROR: %s", evt.Op, evt.Err)
 		} else {
-			fmt.Println(">>> MESSAGE:", string(evt.Body))
+			t.Logf(">>> OP: %s, MESSAGE: %s", evt.Op, string(evt.Body))
 		}
 	})
 	sw.Open()
