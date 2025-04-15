@@ -1,5 +1,41 @@
 # Release Notes for Turbo-Restler
 
+## v0.14.21
+
+### Release Date: 2025-04-15
+
+### Feat
+
+- Introduced a robust `WebSocketWrapper` built on top of `gorilla/websocket`, providing full lifecycle control and concurrency safety.
+- **Lifecycle Methods**:
+  - `Open()` – starts the read/write loops.
+  - `Halt()` – gracefully stops the loops, optionally enforcing short read/write deadlines before force-stopping.
+  - `Resume()` – restarts loops after a halt, reinitializes internal state.
+  - `Close()` – cleanly closes the WebSocket by sending a `CloseMessage` and waiting for the peer to respond.
+  - `Reconnect()` – replaces the internal connection with a new one from the same dialer and URL.
+- **Subscription System**:
+  - `Subscribe(func(MessageEvent))` – add a subscriber.
+  - `Unsubscribe(id int)` – remove a subscriber by ID.
+  - `UnsubscribeAll()` – clear all subscriptions.
+  - Internally calls `emit` to deliver messages and errors to all subscribers.
+- **Asynchronous Send**:
+  - `Send(WriteEvent)` supports sending messages through a buffered channel.
+  - `WriteEvent` includes support for:
+    - `Callback func(error)`
+    - `ErrChan chan error`
+- **Logging**:
+  - `SetMessageLogger(func(LogRecord))` allows structured logging of send/receive events, including errors.
+- **Timeout Handling**:
+  - `SetReadTimeout` / `SetWriteTimeout` directly configure socket-level deadlines.
+  - `SetTimeout` / `GetTimeout` manage wrapper-level timeout for stopping loops and clean shutdowns.
+- **Control Interfaces**:
+  - `GetReader()`, `GetWriter()`, and `GetControl()` expose WebSocket interfaces for advanced usage (e.g., raw stream reading or control frame writes).
+- **Loop Coordination**:
+  - `WaitAllLoops(timeout)` waits for read/write loops to stop.
+  - Atomic flags and sync primitives prevent race conditions between state transitions.
+
+---
+
 ## v0.2.27
 
 ### Release Date: 2024-08-23
