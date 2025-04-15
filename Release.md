@@ -1,5 +1,15 @@
 # Release Notes for Turbo-Restler
 
+## v0.14.22
+
+### Release Date: 2025-04-15
+
+### Feat
+
+ - Add SetPongHandler method to WebSocketInterface and WebSocketWrapper
+
+---
+
 ## v0.14.21
 
 ### Release Date: 2025-04-15

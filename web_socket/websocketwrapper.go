@@ -105,6 +105,10 @@ func (w *WebSocketWrapper) SetPingHandler(f func(string) error) {
 	w.conn.SetPingHandler(f)
 }
 
+func (w *WebSocketWrapper) SetPongHandler(f func(string) error) {
+	w.conn.SetPongHandler(f)
+}
+
 func (w *WebSocketWrapper) SetReadTimeout(timeout time.Duration) {
 	if timeout != 0 {
 		w.conn.SetReadDeadline(time.Now().Add(timeout))
