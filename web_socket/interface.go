@@ -36,29 +36,23 @@ type MessageEvent struct {
 	Error error
 }
 
-type dualContextWS struct {
-	conn        *websocket.Conn
-	readMu      sync.Mutex
-	emit        func(MessageEvent)
-	logger      func(LogRecord)
-	readTimeout time.Duration
-	started     chan struct{}
-	done        chan struct{}
-	globalCtx   context.Context
-	pauseCtx    context.Context
-	pauseCancel context.CancelFunc
+// --- Channel-style interfaces ---
+type WebSocketReadChannel interface {
+	MessageChannel() <-chan MessageEvent
 }
 
-// --- Core interface ---
-type WebSocketCoreInterface interface {
-	Start(ctx context.Context)
-	Halt() bool
-	Resume()
-	Done() <-chan struct{}
+type WebSocketErrorChannel interface {
+	ErrorChannel() <-chan error
 }
 
-// --- Callback-style interface ---
-type WebSocketCallbackInterface interface {
+// --- Callback-style interfaces ---
+type WebSocketEventCallbackInterface interface {
+	Subscribe(f func(MessageEvent)) int
+	Unsubscribe(id int)
+	UnsubscribeAll()
+}
+
+type WebSocketLoggingInterface interface {
 	SetMessageLogger(func(LogRecord))
 }
 
@@ -68,24 +62,37 @@ type WebSocketContextInterface interface {
 	GetGlobalContext() context.Context
 }
 
-// --- Channel-style interface (stubbed for now) ---
-type WebSocketChannelInterface interface {
-	MessageChannel() <-chan MessageEvent
-	ErrorChannel() <-chan error
+// --- Read/write stream access ---
+type WebSocketReadInterface interface {
+	WebSocketReadChannel
+	WebSocketErrorChannel
+	GetReader() WebApiReader
+	WebSocketContextInterface
 }
 
-// --- Unified interface ---
+type WebSocketWriteInterface interface {
+	GetWriter() WebApiWriter
+	GetControl() WebApiControlWriter
+}
+
+// --- Lifecycle control ---
+type WebSocketCoreInterface interface {
+	Start(ctx context.Context)
+	Halt() bool
+	Resume()
+	Done() <-chan struct{}
+}
+
+// --- Unified and full access ---
 type WebSocketInterface interface {
 	WebSocketCoreInterface
-	WebSocketCallbackInterface
-	WebSocketContextInterface
-	WebSocketChannelInterface
-	WebApiControlWriterProvider
-	WebApiReaderProvider
-	WebApiWriterProvider
+	WebSocketReadInterface
+	WebSocketWriteInterface
+	WebSocketEventCallbackInterface
+	WebSocketLoggingInterface
 }
 
-// --- Support interfaces for socket-level access ---
+// --- Socket-level interfaces ---
 type WebApiControlWriter interface {
 	WriteControl(messageType int, data []byte, deadline time.Time) error
 }
@@ -98,25 +105,29 @@ type WebApiWriter interface {
 	WriteMessage(messageType int, data []byte) error
 }
 
-type WebApiControlWriterProvider interface {
-	GetControl() WebApiControlWriter
+type dualContextWS struct {
+	conn        *websocket.Conn
+	readMu      sync.Mutex
+	logger      func(LogRecord)
+	readTimeout time.Duration
+	started     chan struct{}
+	done        chan struct{}
+	globalCtx   context.Context
+	pauseCtx    context.Context
+	pauseCancel context.CancelFunc
+
+	subsMu   sync.RWMutex
+	subs     map[int]func(MessageEvent)
+	subIDGen int
 }
 
-type WebApiReaderProvider interface {
-	GetReader() WebApiReader
-}
-
-type WebApiWriterProvider interface {
-	GetWriter() WebApiWriter
-}
-
-func NewDualContextWS(conn *websocket.Conn, emit func(MessageEvent)) *dualContextWS {
+func NewDualContextWS(conn *websocket.Conn, _ func(MessageEvent)) *dualContextWS {
 	return &dualContextWS{
 		conn:        conn,
-		emit:        emit,
 		started:     make(chan struct{}),
 		done:        make(chan struct{}),
 		readTimeout: 5 * time.Second,
+		subs:        make(map[int]func(MessageEvent)),
 	}
 }
 
@@ -159,7 +170,7 @@ func (d *dualContextWS) readLoop() {
 		}
 
 		if err != nil {
-			d.emit(MessageEvent{Kind: KindError, Error: err})
+			d.emitToSubscribers(MessageEvent{Kind: KindError, Error: err})
 			return
 		}
 
@@ -168,7 +179,7 @@ func (d *dualContextWS) readLoop() {
 			kind = KindData
 		}
 
-		d.emit(MessageEvent{Kind: kind, Body: msg})
+		d.emitToSubscribers(MessageEvent{Kind: kind, Body: msg})
 	}
 }
 
@@ -181,8 +192,7 @@ func (d *dualContextWS) Halt() bool {
 }
 
 func (d *dualContextWS) Resume() {
-	ctx := d.globalCtx
-	d.pauseCtx, d.pauseCancel = context.WithCancel(ctx)
+	d.pauseCtx, d.pauseCancel = context.WithCancel(d.globalCtx)
 	go d.readLoop()
 }
 
@@ -190,9 +200,37 @@ func (d *dualContextWS) Done() <-chan struct{} {
 	return d.done
 }
 
-// --- Stub methods ---
 func (d *dualContextWS) SetMessageLogger(f func(LogRecord)) {
 	d.logger = f
+}
+
+func (d *dualContextWS) Subscribe(f func(MessageEvent)) int {
+	d.subsMu.Lock()
+	defer d.subsMu.Unlock()
+	d.subIDGen++
+	id := d.subIDGen
+	d.subs[id] = f
+	return id
+}
+
+func (d *dualContextWS) Unsubscribe(id int) {
+	d.subsMu.Lock()
+	defer d.subsMu.Unlock()
+	delete(d.subs, id)
+}
+
+func (d *dualContextWS) UnsubscribeAll() {
+	d.subsMu.Lock()
+	defer d.subsMu.Unlock()
+	d.subs = make(map[int]func(MessageEvent))
+}
+
+func (d *dualContextWS) emitToSubscribers(evt MessageEvent) {
+	d.subsMu.RLock()
+	for _, f := range d.subs {
+		f(evt)
+	}
+	d.subsMu.RUnlock()
 }
 
 func (d *dualContextWS) GetPauseContext() context.Context {
@@ -205,32 +243,37 @@ func (d *dualContextWS) GetGlobalContext() context.Context {
 
 func (d *dualContextWS) MessageChannel() <-chan MessageEvent {
 	ch := make(chan MessageEvent, 64)
-	d.emit = func(evt MessageEvent) {
+	id := d.Subscribe(func(evt MessageEvent) {
 		select {
 		case ch <- evt:
 		default:
-			// drop or log overflow
+			// drop
 		}
-	}
+	})
+	go func() {
+		<-d.Done()
+		d.Unsubscribe(id)
+		close(ch)
+	}()
 	return ch
 }
 
 func (d *dualContextWS) ErrorChannel() <-chan error {
 	errCh := make(chan error, 16)
-	// wrap the current emit function
-	prevEmit := d.emit
-	d.emit = func(evt MessageEvent) {
+	id := d.Subscribe(func(evt MessageEvent) {
 		if evt.Kind == KindError && evt.Error != nil {
 			select {
 			case errCh <- evt.Error:
 			default:
-				// drop or log overflow
+				// drop
 			}
 		}
-		if prevEmit != nil {
-			prevEmit(evt)
-		}
-	}
+	})
+	go func() {
+		<-d.Done()
+		d.Unsubscribe(id)
+		close(errCh)
+	}()
 	return errCh
 }
 
@@ -244,4 +287,9 @@ func (d *dualContextWS) GetReader() WebApiReader {
 
 func (d *dualContextWS) GetWriter() WebApiWriter {
 	return d.conn
+}
+
+func (d *dualContextWS) Send(msg []byte) error {
+	// example: send text message
+	return d.conn.WriteMessage(websocket.TextMessage, msg)
 }
