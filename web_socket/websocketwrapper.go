@@ -63,6 +63,7 @@ type WebSocketInterface interface {
 	UnsubscribeAll()
 	SetMessageLogger(f func(LogRecord))
 	SetPingHandler(f func(string) error)
+	SetPongHandler(f func(string) error)
 	SetReadTimeout(time.Duration)
 	SetWriteTimeout(time.Duration)
 	SetTimeout(time.Duration)
