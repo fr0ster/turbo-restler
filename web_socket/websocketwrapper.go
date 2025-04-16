@@ -65,7 +65,6 @@ type WebSocketInterface interface {
 	SetPingHandler(f func(string) error)
 	SetReadTimeout(time.Duration)
 	SetWriteTimeout(time.Duration)
-	// GetTimeout() time.Duration
 	SetTimeout(time.Duration)
 	GetControl() WebApiControlWriter
 	GetReader() WebApiReader
@@ -174,7 +173,7 @@ func (w *WebSocketWrapper) SetWriteTimeout(timeout time.Duration) {
 	}
 }
 
-func (w *WebSocketWrapper) GetTimeout() time.Duration {
+func (w *WebSocketWrapper) getTimeout() time.Duration {
 	w.timeoutMu.RLock()
 	defer w.timeoutMu.RUnlock()
 	return w.timeout
@@ -417,7 +416,7 @@ func (w *WebSocketWrapper) WaitStarted() bool {
 	if w.IsStarted() {
 		return true
 	}
-	timer := time.NewTimer(w.GetTimeout())
+	timer := time.NewTimer(w.getTimeout())
 	defer timer.Stop()
 
 	done := false
@@ -437,7 +436,7 @@ func (w *WebSocketWrapper) WaitStopped() bool {
 	if w.IsStopped() {
 		return true
 	}
-	timer := time.NewTimer(w.GetTimeout())
+	timer := time.NewTimer(w.getTimeout())
 	defer timer.Stop()
 
 	done := false
@@ -487,7 +486,7 @@ func (w *WebSocketWrapper) Halt() bool {
 		return ok
 	}
 	if !f(0) {
-		return f(w.GetTimeout())
+		return f(w.getTimeout())
 	} else {
 		return true
 	}
@@ -504,7 +503,7 @@ func (w *WebSocketWrapper) Close() error {
 		websocket.FormatCloseMessage(websocket.CloseNormalClosure, "client closing"))
 
 	// Дай серверу час відповісти
-	time.Sleep(w.GetTimeout())
+	time.Sleep(w.getTimeout())
 
 	if w.onDisconnect != nil {
 		w.onDisconnect()
