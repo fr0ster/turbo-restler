@@ -89,7 +89,6 @@ type WebSocketWriteInterface interface {
 type WebSocketCoreInterface interface {
 	Start(ctx ...context.Context)
 	Halt() bool
-	// Resume()
 	Close() error
 	Done() <-chan struct{}
 	Started() <-chan struct{}
@@ -120,6 +119,7 @@ type WebApiWriter interface {
 }
 
 type webSocketWrapper struct {
+	readTimeout  time.Duration
 	writeTimeout time.Duration
 	writeMu      sync.Mutex
 
@@ -131,7 +131,6 @@ type webSocketWrapper struct {
 	logger      func(LogRecord)
 	pingHandler func(string) error
 	pongHandler func(string) error
-	readTimeout time.Duration
 	started     chan struct{}
 	done        chan struct{}
 	globalCtx   context.Context
@@ -383,6 +382,10 @@ func (d *webSocketWrapper) readLoop() {
 
 		d.emitToSubscribers(MessageEvent{Kind: kind, Body: msg})
 	}
+}
+
+func (d *webSocketWrapper) SetReadTimeout(timeout time.Duration) {
+	d.readTimeout = timeout
 }
 
 func (d *webSocketWrapper) writeLoop() {

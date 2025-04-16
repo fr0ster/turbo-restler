@@ -153,7 +153,7 @@ func Test_ResumeWithPingHandler(t *testing.T) {
 	sw, err := web_socket.NewWebSocketWrapper(dial())
 	require.NoError(t, err)
 	// sw.SetTimeout(timeout)
-	sw.Resume()
+	sw.Start()
 	<-sw.Started()
 
 	// Phase 1
@@ -180,7 +180,7 @@ func Test_ResumeWithPingHandler(t *testing.T) {
 
 	// Phase 2
 	sw.Reconnect()
-	sw.Resume()
+	sw.Start()
 	<-sw.Started()
 	require.NoError(t, sw.Send(web_socket.WriteEvent{Body: []byte("second")}))
 	time.Sleep(100 * time.Millisecond)
@@ -230,7 +230,7 @@ func TestLoopsV2(t *testing.T) {
 	defer cleanup()
 
 	ws, err := web_socket.NewWebSocketWrapper(websocket.DefaultDialer, u)
-	ws.SetTimeout(50 * time.Millisecond)
+	ws.SetReadTimeout(50 * time.Millisecond)
 	if err != nil {
 		t.Fatalf("Failed to create WebSocketWrapper: %v", err)
 	}
@@ -247,7 +247,7 @@ func TestLoopsV2(t *testing.T) {
 	})
 
 	// Просто відкриваємо і чекаємо трохи
-	ws.Resume()
+	ws.Start()
 	ws.SetPingHandler(func(string) error {
 		return ws.GetControl().WriteControl(websocket.PongMessage, []byte("pong"), time.Now().Add(time.Second))
 	})
@@ -261,7 +261,7 @@ func TestLoopsV2(t *testing.T) {
 	})
 	time.Sleep(1 * time.Second)
 	ws.Halt()
-	ws.Resume()
+	ws.Start()
 	time.Sleep(1 * time.Second)
 	ws.Close()
 }
@@ -317,7 +317,7 @@ func Test_ResumeWithPingHandlerV2(t *testing.T) {
 
 	sw, err := web_socket.NewWebSocketWrapper(dial())
 	require.NoError(t, err)
-	sw.SetTimeout(timeout)
+	sw.SetReadTimeout(timeout)
 
 	sw.SetMessageLogger(func(evt web_socket.LogRecord) {
 		if evt.Err != nil {
@@ -328,7 +328,7 @@ func Test_ResumeWithPingHandlerV2(t *testing.T) {
 	})
 
 	t.Log("Opening connection...")
-	sw.Open()
+	sw.Start()
 	<-sw.Started()
 
 	recv := make(chan string, 1)
@@ -358,7 +358,7 @@ func Test_ResumeWithPingHandlerV2(t *testing.T) {
 
 	t.Log("PHASE 2: resuming")
 	sw.Reconnect()
-	sw.Resume()
+	sw.Start()
 	<-sw.Started()
 	t.Log("PHASE 2: resumed")
 
@@ -432,7 +432,7 @@ func Test_ResumeWithPingHandlerV3(t *testing.T) {
 
 	sw, err := web_socket.NewWebSocketWrapper(dial())
 	require.NoError(t, err)
-	sw.SetTimeout(timeout)
+	sw.SetReadTimeout(timeout)
 
 	sw.SetMessageLogger(func(evt web_socket.LogRecord) {
 		if evt.Err != nil {
@@ -443,7 +443,7 @@ func Test_ResumeWithPingHandlerV3(t *testing.T) {
 	})
 
 	t.Log("Opening connection...")
-	sw.Open()
+	sw.Start()
 	<-sw.Started()
 
 	recv := make(chan string, 1)
@@ -473,7 +473,7 @@ func Test_ResumeWithPingHandlerV3(t *testing.T) {
 
 	t.Log("PHASE 2: resuming")
 	sw.Reconnect()
-	sw.Resume()
+	sw.Start()
 	<-sw.Started()
 	t.Log("PHASE 2: resumed")
 

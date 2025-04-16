@@ -18,7 +18,7 @@ func newTestWS(t *testing.T) web_socket.WebSocketInterface {
 
 	ws, err := web_socket.NewWebSocketWrapper(websocket.DefaultDialer, u)
 	require.NoError(t, err)
-	ws.Open()
+	ws.Start()
 	<-ws.Started()
 	return ws
 }
