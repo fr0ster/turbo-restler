@@ -12,32 +12,32 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// type LogOp string
+type LogOp string
 
-// const (
-// 	OpReceive LogOp = "receive"
-// 	OpSend    LogOp = "send"
-// )
+const (
+	OpReceive LogOp = "receive"
+	OpSend    LogOp = "send"
+)
 
-// type MessageKind int
+type MessageKind int
 
-// const (
-// 	KindData MessageKind = iota
-// 	KindError
-// 	KindControl
-// )
+const (
+	KindData MessageKind = iota
+	KindError
+	KindControl
+)
 
-// type LogRecord struct {
-// 	Op   LogOp
-// 	Body []byte
-// 	Err  error
-// }
+type LogRecord struct {
+	Op   LogOp
+	Body []byte
+	Err  error
+}
 
-// type MessageEvent struct {
-// 	Kind  MessageKind
-// 	Body  []byte
-// 	Error error
-// }
+type MessageEvent struct {
+	Kind  MessageKind
+	Body  []byte
+	Error error
+}
 
 type WebSocketInterface interface {
 	Open()
@@ -63,13 +63,13 @@ type WebSocketInterface interface {
 	Done() <-chan struct{}
 }
 
-// type WriteCallback func(error)
+type WriteCallback func(error)
 
-// type WriteEvent struct {
-// 	Body     []byte
-// 	Callback WriteCallback
-// 	ErrChan  chan error
-// }
+type WriteEvent struct {
+	Body     []byte
+	Callback WriteCallback
+	ErrChan  chan error
+}
 
 type WebSocketWrapper struct {
 	conn   *websocket.Conn
