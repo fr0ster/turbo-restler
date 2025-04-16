@@ -24,6 +24,7 @@ type MessageKind int
 const (
 	KindData MessageKind = iota
 	KindError
+	KindFatalError
 	KindControl
 )
 
@@ -64,16 +65,23 @@ type WebSocketInterface interface {
 	SetPingHandler(f func(string) error)
 	SetReadTimeout(time.Duration)
 	SetWriteTimeout(time.Duration)
-	GetTimeout() time.Duration
+	// GetTimeout() time.Duration
 	SetTimeout(time.Duration)
 	GetControl() WebApiControlWriter
 	GetReader() WebApiReader
 	GetWriter() WebApiWriter
 	Started() <-chan struct{}
-	WaitAllLoops(timeout time.Duration) bool
+	IsStarted() bool
+	WaitStarted() bool
+	Stopped() <-chan struct{}
+	IsStopped() bool
+	WaitStopped() bool
 	Resume()
 	Reconnect() error
-	Done() <-chan struct{}
+	SetStartedHandler(f func())
+	SetStoppedHandler(f func())
+	SetConnectedHandler(f func())
+	SetDisconnectHandler(f func())
 }
 
 type WriteCallback func(error)
@@ -99,11 +107,12 @@ type WebSocketWrapper struct {
 	timeoutMu sync.RWMutex
 	timeout   time.Duration
 
-	readIsWorked  atomic.Bool
-	writeIsWorked atomic.Bool
+	readIsWorked    atomic.Bool
+	writeIsWorked   atomic.Bool
+	loopsAreRunning atomic.Bool
 
-	startedOnce sync.Once
-	started     chan struct{}
+	started chan struct{}
+	stopped chan struct{}
 
 	logger func(LogRecord)
 
@@ -111,8 +120,10 @@ type WebSocketWrapper struct {
 	subs     map[int]func(MessageEvent)
 	subIDGen atomic.Int32
 
-	readLoopDone  chan struct{}
-	writeLoopDone chan struct{}
+	onStarted    func()
+	onStopped    func()
+	onConnected  func()
+	onDisconnect func()
 }
 
 func NewWebSocketWrapper(d *websocket.Dialer, url string) (*WebSocketWrapper, error) {
@@ -121,16 +132,15 @@ func NewWebSocketWrapper(d *websocket.Dialer, url string) (*WebSocketWrapper, er
 		return nil, errors.New("failed to connect to WebSocket: " + err.Error())
 	}
 	return &WebSocketWrapper{
-		conn:          conn,
-		dialer:        d,
-		url:           url,
-		sendChan:      make(chan WriteEvent, 128),
-		started:       make(chan struct{}),
-		subs:          make(map[int]func(MessageEvent)),
-		readLoopDone:  make(chan struct{}),
-		writeLoopDone: make(chan struct{}),
-		timeoutMu:     sync.RWMutex{},
-		timeout:       0 * time.Millisecond,
+		conn:      conn,
+		dialer:    d,
+		url:       url,
+		sendChan:  make(chan WriteEvent, 128),
+		started:   make(chan struct{}, 1),
+		stopped:   make(chan struct{}, 1),
+		subs:      make(map[int]func(MessageEvent)),
+		timeoutMu: sync.RWMutex{},
+		timeout:   1000 * time.Millisecond,
 	}, nil
 }
 
@@ -208,26 +218,31 @@ func (w *WebSocketWrapper) Started() <-chan struct{} {
 	return w.started
 }
 
-func (w *WebSocketWrapper) Done() <-chan struct{} {
-	if w.ctx != nil {
-		return w.ctx.Done()
-	}
-	ch := make(chan struct{})
-	close(ch)
-	return ch
+func (w *WebSocketWrapper) IsStarted() bool {
+	return w.loopsAreRunning.Load()
+}
+
+func (w *WebSocketWrapper) Stopped() <-chan struct{} {
+	return w.stopped
+}
+
+func (w *WebSocketWrapper) IsStopped() bool {
+	return !w.loopsAreRunning.Load()
 }
 
 func (w *WebSocketWrapper) Open() {
 	// Якщо цикли вже працюють — нічого не робимо
-	if w.readIsWorked.Load() || w.writeIsWorked.Load() {
+	if w.loopsAreRunning.Load() {
 		return
 	}
 	w.ctx, w.cancel = context.WithCancel(context.Background())
+	w.loopsAreRunning.Store(false)
+	w.readIsWorked.Store(false)
+	w.writeIsWorked.Store(false)
+	w.started = make(chan struct{}, 1)
+	w.stopped = make(chan struct{}, 1)
 	go w.readLoop(w.ctx)
 	go w.writeLoop(w.ctx)
-	w.startedOnce.Do(func() {
-		close(w.started)
-	})
 }
 
 func (w *WebSocketWrapper) Send(evt WriteEvent) error {
@@ -239,7 +254,14 @@ func (w *WebSocketWrapper) Send(evt WriteEvent) error {
 	}
 }
 
-func isSocketClosedByServerError(err error) bool {
+func isFatalError(err error) bool {
+	// Класифікація таймаутів
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
+	}
+
+	// Класифікація стандартних фатальних WebSocket/мережевих помилок
 	if websocket.IsCloseError(err,
 		websocket.CloseNormalClosure,
 		websocket.CloseGoingAway,
@@ -249,14 +271,40 @@ func isSocketClosedByServerError(err error) bool {
 		errors.Is(err, io.EOF) {
 		return true
 	}
+
 	return false
 }
 
+func (w *WebSocketWrapper) checkStarted() {
+	if !w.loopsAreRunning.Load() {
+		if w.readIsWorked.Load() && w.writeIsWorked.Load() {
+			w.loopsAreRunning.Store(true)
+			select {
+			case w.started <- struct{}{}:
+			default:
+			}
+		}
+	}
+}
+
+func (w *WebSocketWrapper) checkStopped() {
+	if w.loopsAreRunning.Load() {
+		if !w.writeIsWorked.Load() && w.loopsAreRunning.Load() {
+			w.loopsAreRunning.Store(false)
+			select {
+			case w.stopped <- struct{}{}:
+			default:
+			}
+		}
+	}
+}
+
 func (w *WebSocketWrapper) readLoop(ctx context.Context) {
-	w.readIsWorked.Store(true)
 	defer func() {
-		w.readIsWorked.Store(false)
-		close(w.readLoopDone)
+		if w.readIsWorked.Load() {
+			w.readIsWorked.Store(false)
+		}
+		w.checkStopped()
 	}()
 
 	for {
@@ -266,6 +314,11 @@ func (w *WebSocketWrapper) readLoop(ctx context.Context) {
 			return
 		default:
 		}
+
+		if !w.readIsWorked.Load() {
+			w.readIsWorked.Store(true)
+		}
+		w.checkStarted()
 
 		w.readMu.Lock()
 		typ, msg, err := w.conn.ReadMessage()
@@ -282,15 +335,20 @@ func (w *WebSocketWrapper) readLoop(ctx context.Context) {
 		}
 
 		if err != nil {
+			if w.onDisconnect != nil {
+				w.onDisconnect()
+			}
+
 			// Обробка очікуваних помилок
-			if isSocketClosedByServerError(err) {
-				w.emit(MessageEvent{Kind: KindError, Error: err})
+			if isFatalError(err) {
+				w.emit(MessageEvent{Kind: KindFatalError, Error: err})
+				w.conn.Close()
 				return
 			}
 
 			// Неочікувані помилки — теж вихід
 			w.emit(MessageEvent{Kind: KindError, Error: err})
-			return
+			continue
 		}
 
 		// Визначаємо тип повідомлення
@@ -305,17 +363,24 @@ func (w *WebSocketWrapper) readLoop(ctx context.Context) {
 }
 
 func (w *WebSocketWrapper) writeLoop(ctx context.Context) {
-	w.writeIsWorked.Store(true)
 	defer func() {
-		w.writeIsWorked.Store(false)
-		close(w.writeLoopDone)
+		if w.writeIsWorked.Load() {
+			w.writeIsWorked.Store(false)
+		}
+		w.checkStopped()
 	}()
 
 	for {
+		if !w.writeIsWorked.Load() {
+			w.writeIsWorked.Store(true)
+		}
+		w.checkStarted()
+
 		select {
 		case <-ctx.Done():
 			return
 		case evt := <-w.sendChan:
+
 			w.writeMu.Lock()
 			err := w.conn.WriteMessage(websocket.TextMessage, evt.Body)
 			w.writeMu.Unlock()
@@ -335,32 +400,52 @@ func (w *WebSocketWrapper) writeLoop(ctx context.Context) {
 }
 
 func (w *WebSocketWrapper) Resume() {
-	w.WaitAllLoops(w.GetTimeout())
-	w.readLoopDone = make(chan struct{}, 1)
-	w.writeLoopDone = make(chan struct{}, 1)
-	w.started = make(chan struct{})
-	w.startedOnce = sync.Once{}
+	w.WaitStopped()
+	w.loopsAreRunning.Store(false)
+	w.readIsWorked.Store(false)
+	w.writeIsWorked.Store(false)
+	w.started = make(chan struct{}, 1)
+	w.stopped = make(chan struct{}, 1)
 	w.SetReadTimeout(0)
 	w.SetWriteTimeout(0)
 	w.ctx, w.cancel = context.WithCancel(context.Background())
 	go w.readLoop(w.ctx)
 	go w.writeLoop(w.ctx)
-	w.startedOnce.Do(func() { close(w.started) })
 }
 
-func (w *WebSocketWrapper) WaitAllLoops(timeout time.Duration) bool {
-	timer := time.NewTimer(timeout)
+func (w *WebSocketWrapper) WaitStarted() bool {
+	if w.IsStarted() {
+		return true
+	}
+	timer := time.NewTimer(w.GetTimeout())
 	defer timer.Stop()
 
-	readDone := false
-	writeDone := false
+	done := false
 
-	for !(readDone && writeDone) {
+	for !done {
 		select {
-		case <-w.readLoopDone:
-			readDone = true
-		case <-w.writeLoopDone:
-			writeDone = true
+		case <-w.started:
+			done = true
+		case <-timer.C:
+			return false
+		}
+	}
+	return true
+}
+
+func (w *WebSocketWrapper) WaitStopped() bool {
+	if w.IsStopped() {
+		return true
+	}
+	timer := time.NewTimer(w.GetTimeout())
+	defer timer.Stop()
+
+	done := false
+
+	for !done {
+		select {
+		case <-w.stopped:
+			done = true
 		case <-timer.C:
 			return false
 		}
@@ -381,6 +466,11 @@ func (w *WebSocketWrapper) GetWriter() WebApiWriter {
 }
 
 func (w *WebSocketWrapper) Halt() bool {
+	if !w.readIsWorked.Load() && !w.writeIsWorked.Load() {
+		return true
+	}
+	w.started = make(chan struct{}, 1)
+	w.stopped = make(chan struct{}, 1)
 	f := func(timeOut time.Duration) bool {
 		if timeOut != 0 {
 			w.SetReadTimeout(timeOut / 2)
@@ -391,7 +481,7 @@ func (w *WebSocketWrapper) Halt() bool {
 				w.cancel()
 			}
 		}
-		ok := w.WaitAllLoops(timeOut)
+		ok := w.WaitStopped()
 		w.SetReadTimeout(0)
 		w.SetWriteTimeout(0)
 		return ok
@@ -416,6 +506,10 @@ func (w *WebSocketWrapper) Close() error {
 	// Дай серверу час відповісти
 	time.Sleep(w.GetTimeout())
 
+	if w.onDisconnect != nil {
+		w.onDisconnect()
+	}
+
 	return w.conn.Close()
 }
 
@@ -427,5 +521,24 @@ func (w *WebSocketWrapper) Reconnect() error {
 	old := w.conn
 	w.conn = conn
 	_ = old.Close()
+	if w.onConnected != nil {
+		w.onConnected()
+	}
 	return nil
+}
+
+func (w *WebSocketWrapper) SetStartedHandler(f func()) {
+	w.onStarted = f
+}
+
+func (w *WebSocketWrapper) SetStoppedHandler(f func()) {
+	w.onStopped = f
+}
+
+func (w *WebSocketWrapper) SetConnectedHandler(f func()) {
+	w.onConnected = f
+}
+
+func (w *WebSocketWrapper) SetDisconnectHandler(f func()) {
+	w.onDisconnect = f
 }

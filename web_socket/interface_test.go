@@ -43,8 +43,7 @@ func TestWebSocketInterface_BasicSendReceive(t *testing.T) {
 	ws := newTestWS(t)
 	defer func() {
 		ws.Close()
-		<-ws.Done()
-		ok := ws.WaitAllLoops(10 * time.Second)
+		ok := ws.WaitStopped()
 		if !ok {
 			t.Log("Loops did not finish in time")
 		}
@@ -77,7 +76,7 @@ func TestWebSocketInterface_Unsubscribe(t *testing.T) {
 		ws.Close()
 		// ok := ws.WaitAllLoops(1 * time.Second)
 		// require.True(t, ok, "Loops did not finish in time")
-		<-ws.Done()
+		ws.WaitStopped()
 	}()
 
 	called := false
@@ -100,7 +99,7 @@ func TestWebSocketInterface_Unsubscribe(t *testing.T) {
 // 	// 	ws.Close()
 // 	// 	ok := ws.WaitAllLoops(1 * time.Second)
 // 	// 	require.True(t, ok, "Loops did not finish in time")
-// 	// 	<-ws.Done()
+// 	// 	ws.WaitStopped()
 // 	// }()
 
 // 	pongHandled := make(chan struct{})
@@ -129,7 +128,7 @@ func TestWebSocketInterface_Unsubscribe(t *testing.T) {
 
 // 	ws.Close()
 // 	select {
-// 	case <-ws.Done():
+// 	case ws.WaitStopped():
 // 	case <-time.After(time.Second):
 // 		t.Fatal("Done channel not closed")
 // 	}
@@ -141,7 +140,7 @@ func TestWebSocketInterface_Unsubscribe(t *testing.T) {
 // 		ws.Close()
 // 		ok := ws.WaitAllLoops(1 * time.Second)
 // 		require.True(t, ok, "Loops did not finish in time")
-// 		<-ws.Done()
+// 		ws.WaitStopped()
 // 	}()
 
 // 	ws.PauseLoops()
@@ -163,7 +162,7 @@ func TestWebSocketInterface_Logger(t *testing.T) {
 		ws.Close()
 		// ok := ws.WaitAllLoops(1 * time.Second)
 		// require.True(t, ok, "Loops did not finish in time")
-		<-ws.Done()
+		ws.WaitStopped()
 	}()
 
 	logged := make(chan web_socket.LogRecord, 1)
@@ -214,5 +213,5 @@ func TestWebSocketInterface_Logger(t *testing.T) {
 // 		t.Fatal("timeout waiting for message")
 // 	}
 // 	ws.Close()
-// 	<-ws.Done()
+// 	ws.WaitStopped()
 // }

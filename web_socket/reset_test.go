@@ -72,7 +72,7 @@ func TestWebSocketWrapper_SubscribeLifecycle(t *testing.T) {
 	time.Sleep(1000 * time.Millisecond)
 	verifyMessage(sw, "first")
 	ok := sw.Halt()
-	<-sw.Done()
+	sw.WaitStopped()
 	require.True(t, ok)
 
 	// Phase 2: Reset and reconnect
@@ -82,8 +82,7 @@ func TestWebSocketWrapper_SubscribeLifecycle(t *testing.T) {
 	time.Sleep(1000 * time.Millisecond)
 	verifyMessage(sw, "second")
 	sw.Close()
-	<-sw.Done()
-	ok = sw.WaitAllLoops(2 * time.Second)
+	ok = sw.WaitStopped()
 	require.True(t, ok)
 }
 
@@ -176,7 +175,7 @@ func Test_ResumeWithPingHandler(t *testing.T) {
 	}
 
 	require.True(t, sw.Halt())
-	<-sw.Done()
+	sw.WaitStopped()
 
 	// Phase 2
 	sw.Reconnect()
@@ -199,7 +198,7 @@ func Test_ResumeWithPingHandler(t *testing.T) {
 	}
 
 	sw.Close()
-	<-sw.Done()
+	sw.WaitStopped()
 }
 
 func TestLoopsV2(t *testing.T) {
@@ -353,7 +352,7 @@ func Test_ResumeWithPingHandlerV2(t *testing.T) {
 
 	t.Log("Halting...")
 	require.True(t, sw.Halt())
-	<-sw.Done()
+	sw.WaitStopped()
 	t.Log("HALT completed")
 
 	t.Log("PHASE 2: resuming")
@@ -374,7 +373,7 @@ func Test_ResumeWithPingHandlerV2(t *testing.T) {
 
 	t.Log("Closing...")
 	sw.Close()
-	<-sw.Done()
+	sw.WaitStopped()
 	t.Log("=== END TEST ===")
 }
 
@@ -468,7 +467,7 @@ func Test_ResumeWithPingHandlerV3(t *testing.T) {
 
 	t.Log("Halting...")
 	require.True(t, sw.Halt())
-	<-sw.Done()
+	sw.WaitStopped()
 	t.Log("HALT completed")
 
 	t.Log("PHASE 2: resuming")
@@ -488,7 +487,7 @@ func Test_ResumeWithPingHandlerV3(t *testing.T) {
 	}
 
 	sw.Close()
-	<-sw.Done()
+	sw.WaitStopped()
 }
 
 func init() {

@@ -131,7 +131,7 @@ func TestReadWrite(t *testing.T) {
 	}
 
 	sw.Close()
-	<-sw.Done()
+	sw.WaitStopped()
 }
 
 func TestPingPongTimeoutClose(t *testing.T) {
@@ -212,7 +212,7 @@ func TestPingPongTimeoutClose(t *testing.T) {
 	}
 
 	sw.Close()
-	<-sw.Done()
+	sw.WaitStopped()
 }
 
 func TestConcurrentConsumers(t *testing.T) {
@@ -266,7 +266,7 @@ func TestConcurrentConsumers(t *testing.T) {
 	}
 
 	sw.Close()
-	<-sw.Done()
+	sw.WaitStopped()
 }
 
 func TestPingPongWithTimeoutEnforcedByServer(t *testing.T) {
@@ -345,7 +345,7 @@ func TestPingPongWithTimeoutEnforcedByServer(t *testing.T) {
 	time.Sleep(500 * time.Millisecond)
 
 	sw.Close()
-	<-sw.Done()
+	sw.WaitStopped()
 }
 
 func TestManyConcurrentConsumers(t *testing.T) {
@@ -391,7 +391,7 @@ func TestManyConcurrentConsumers(t *testing.T) {
 	}
 
 	sw.Close()
-	<-sw.Done()
+	sw.WaitStopped()
 }
 
 func TestNoPongServerClosesConnection(t *testing.T) {
@@ -425,7 +425,7 @@ func TestNoPongServerClosesConnection(t *testing.T) {
 	}
 
 	sw.Close()
-	<-sw.Done()
+	sw.WaitStopped()
 }
 
 func TestWebSocketWrapper_GetReaderWriter(t *testing.T) {
@@ -497,7 +497,7 @@ func TestMessageLoggerCalled(t *testing.T) {
 	}
 
 	sw.Close()
-	<-sw.Done()
+	sw.WaitStopped()
 }
 
 func TestSubscribeUnsubscribe(t *testing.T) {
@@ -550,7 +550,7 @@ func TestSubscribeUnsubscribe(t *testing.T) {
 	}
 
 	sw.Close()
-	<-sw.Done()
+	sw.WaitStopped()
 }
 
 func TestSendWithSendResult(t *testing.T) {
@@ -591,7 +591,7 @@ func TestSendWithSendResult(t *testing.T) {
 	}
 
 	sw.Close()
-	<-sw.Done()
+	sw.WaitStopped()
 }
 
 func TestSendWithAwaitCallback(t *testing.T) {
@@ -628,7 +628,7 @@ func TestSendWithAwaitCallback(t *testing.T) {
 	}
 
 	sw.Close()
-	<-sw.Done()
+	sw.WaitStopped()
 }
 func TestHandlerPanic(t *testing.T) {
 	t.Log("Test started")
@@ -671,7 +671,7 @@ func TestHandlerPanic(t *testing.T) {
 	}
 
 	sw.Close()
-	<-sw.Done()
+	sw.WaitStopped()
 }
 
 func TestHTimeOuts(t *testing.T) {
@@ -696,7 +696,7 @@ func TestHTimeOuts(t *testing.T) {
 	sw.SetWriteTimeout(1 * time.Second)
 
 	sw.Close()
-	<-sw.Done()
+	sw.WaitStopped()
 }
 func TestReconnect(t *testing.T) {
 	u, cleanup := StartWebSocketTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -754,7 +754,7 @@ func TestReconnect(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	sw.Close()
-	<-sw.Done()
+	sw.WaitStopped()
 
 }
 
