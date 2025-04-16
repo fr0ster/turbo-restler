@@ -106,16 +106,17 @@ type WebApiWriter interface {
 }
 
 type dualContextWS struct {
-	writeMu     sync.Mutex
-	sendQueue   chan []byte
-	conn        *websocket.Conn
-	logger      func(LogRecord)
-	readTimeout time.Duration
-	started     chan struct{}
-	done        chan struct{}
-	globalCtx   context.Context
-	pauseCtx    context.Context
-	pauseCancel context.CancelFunc
+	writeTimeout time.Duration
+	writeMu      sync.Mutex
+	sendQueue    chan []byte
+	conn         *websocket.Conn
+	logger       func(LogRecord)
+	readTimeout  time.Duration
+	started      chan struct{}
+	done         chan struct{}
+	globalCtx    context.Context
+	pauseCtx     context.Context
+	pauseCancel  context.CancelFunc
 
 	subsMu   sync.RWMutex
 	subs     map[int]func(MessageEvent)
@@ -293,6 +294,8 @@ func (d *dualContextWS) GetWriter() WebApiWriter {
 }
 
 func (d *dualContextWS) writeLoop() {
+	var deadline time.Time
+	var err error
 	for {
 		select {
 		case <-d.globalCtx.Done():
@@ -301,7 +304,13 @@ func (d *dualContextWS) writeLoop() {
 			return
 		case msg := <-d.sendQueue:
 			d.writeMu.Lock()
-			err := d.conn.WriteMessage(websocket.TextMessage, msg)
+			if d.writeTimeout > 0 {
+				deadline = time.Now().Add(d.writeTimeout)
+				d.conn.SetWriteDeadline(deadline)
+			} else {
+				d.conn.SetWriteDeadline(time.Time{})
+			}
+			err = d.conn.WriteMessage(websocket.TextMessage, msg)
 			d.writeMu.Unlock()
 
 			if d.logger != nil {
@@ -309,6 +318,10 @@ func (d *dualContextWS) writeLoop() {
 			}
 		}
 	}
+}
+
+func (d *dualContextWS) SetWriteTimeout(timeout time.Duration) {
+	d.writeTimeout = timeout
 }
 
 func (d *dualContextWS) Send(msg []byte) error {
