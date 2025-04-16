@@ -2,6 +2,7 @@ package web_socket
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
@@ -34,6 +35,14 @@ type MessageEvent struct {
 	Kind  MessageKind
 	Body  []byte
 	Error error
+}
+
+type WriteCallback func(error)
+
+type WriteEvent struct {
+	Body     []byte
+	Callback WriteCallback
+	ErrChan  chan error
 }
 
 // --- Channel-style interfaces ---
@@ -73,6 +82,7 @@ type WebSocketReadInterface interface {
 type WebSocketWriteInterface interface {
 	GetWriter() WebApiWriter
 	GetControl() WebApiControlWriter
+	Send(evt WriteEvent) error
 }
 
 // --- Lifecycle control ---
@@ -84,7 +94,7 @@ type WebSocketCoreInterface interface {
 }
 
 // --- Unified and full access ---
-type WebSocketInterface interface {
+type DualContextWebSocketInterface interface {
 	WebSocketCoreInterface
 	WebSocketReadInterface
 	WebSocketWriteInterface
@@ -108,15 +118,16 @@ type WebApiWriter interface {
 type dualContextWS struct {
 	writeTimeout time.Duration
 	writeMu      sync.Mutex
-	sendQueue    chan []byte
-	conn         *websocket.Conn
-	logger       func(LogRecord)
-	readTimeout  time.Duration
-	started      chan struct{}
-	done         chan struct{}
-	globalCtx    context.Context
-	pauseCtx     context.Context
-	pauseCancel  context.CancelFunc
+
+	sendQueue   chan WriteEvent
+	conn        *websocket.Conn
+	logger      func(LogRecord)
+	readTimeout time.Duration
+	started     chan struct{}
+	done        chan struct{}
+	globalCtx   context.Context
+	pauseCtx    context.Context
+	pauseCancel context.CancelFunc
 
 	subsMu   sync.RWMutex
 	subs     map[int]func(MessageEvent)
@@ -125,7 +136,7 @@ type dualContextWS struct {
 
 func NewDualContextWS(conn *websocket.Conn, _ func(MessageEvent)) *dualContextWS {
 	return &dualContextWS{
-		sendQueue:   make(chan []byte, 64),
+		sendQueue:   make(chan WriteEvent, 64),
 		conn:        conn,
 		started:     make(chan struct{}),
 		done:        make(chan struct{}),
@@ -154,12 +165,10 @@ func (d *dualContextWS) readLoop() {
 		default:
 		}
 
-		// d.readMu removed – no longer used
 		if d.readTimeout > 0 {
 			d.conn.SetReadDeadline(time.Now().Add(d.readTimeout))
 		}
 		typ, msg, err := d.conn.ReadMessage()
-		// d.readMu removed – no longer used
 
 		select {
 		case <-d.globalCtx.Done():
@@ -251,7 +260,6 @@ func (d *dualContextWS) MessageChannel() <-chan MessageEvent {
 		select {
 		case ch <- evt:
 		default:
-			// drop
 		}
 	})
 	go func() {
@@ -269,7 +277,6 @@ func (d *dualContextWS) ErrorChannel() <-chan error {
 			select {
 			case errCh <- evt.Error:
 			default:
-				// drop
 			}
 		}
 	})
@@ -302,7 +309,7 @@ func (d *dualContextWS) writeLoop() {
 			return
 		case <-d.pauseCtx.Done():
 			return
-		case msg := <-d.sendQueue:
+		case evt := <-d.sendQueue:
 			d.writeMu.Lock()
 			if d.writeTimeout > 0 {
 				deadline = time.Now().Add(d.writeTimeout)
@@ -310,11 +317,21 @@ func (d *dualContextWS) writeLoop() {
 			} else {
 				d.conn.SetWriteDeadline(time.Time{})
 			}
-			err = d.conn.WriteMessage(websocket.TextMessage, msg)
+			err = d.conn.WriteMessage(websocket.TextMessage, evt.Body)
 			d.writeMu.Unlock()
 
 			if d.logger != nil {
-				d.logger(LogRecord{Op: OpSend, Body: msg, Err: err})
+				d.logger(LogRecord{Op: OpSend, Body: evt.Body, Err: err})
+			}
+
+			if evt.Callback != nil {
+				go evt.Callback(err)
+			}
+			if evt.ErrChan != nil {
+				select {
+				case evt.ErrChan <- err:
+				default:
+				}
 			}
 		}
 	}
@@ -324,11 +341,11 @@ func (d *dualContextWS) SetWriteTimeout(timeout time.Duration) {
 	d.writeTimeout = timeout
 }
 
-func (d *dualContextWS) Send(msg []byte) error {
+func (d *dualContextWS) Send(evt WriteEvent) error {
 	select {
-	case d.sendQueue <- msg:
+	case d.sendQueue <- evt:
 		return nil
 	case <-d.globalCtx.Done():
-		return context.Canceled
+		return errors.New("connection is closed")
 	}
 }

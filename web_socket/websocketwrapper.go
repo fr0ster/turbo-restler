@@ -39,13 +39,37 @@ import (
 // 	Error error
 // }
 
-type WriteCallback func(error)
-
-type WriteEvent struct {
-	Body     []byte
-	Callback WriteCallback
-	ErrChan  chan error
+type WebSocketInterface interface {
+	Open()
+	Halt() bool
+	Close() error
+	Send(writeEvent WriteEvent) error
+	Subscribe(f func(MessageEvent)) int
+	Unsubscribe(id int)
+	UnsubscribeAll()
+	SetMessageLogger(f func(LogRecord))
+	SetPingHandler(f func(string) error)
+	SetReadTimeout(time.Duration)
+	SetWriteTimeout(time.Duration)
+	GetTimeout() time.Duration
+	SetTimeout(time.Duration)
+	GetControl() WebApiControlWriter
+	GetReader() WebApiReader
+	GetWriter() WebApiWriter
+	Started() <-chan struct{}
+	WaitAllLoops(timeout time.Duration) bool
+	Resume()
+	Reconnect() error
+	Done() <-chan struct{}
 }
+
+// type WriteCallback func(error)
+
+// type WriteEvent struct {
+// 	Body     []byte
+// 	Callback WriteCallback
+// 	ErrChan  chan error
+// }
 
 type WebSocketWrapper struct {
 	conn   *websocket.Conn
