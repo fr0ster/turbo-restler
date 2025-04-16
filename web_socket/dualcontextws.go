@@ -91,6 +91,9 @@ type WebSocketCoreInterface interface {
 	Halt() bool
 	Resume()
 	Done() <-chan struct{}
+	Started() <-chan struct{}
+	WaitAllLoops(timeout time.Duration) bool
+	Reconnect() error
 }
 
 // --- Unified and full access ---
@@ -119,9 +122,14 @@ type dualContextWS struct {
 	writeTimeout time.Duration
 	writeMu      sync.Mutex
 
-	sendQueue   chan WriteEvent
-	conn        *websocket.Conn
+	sendQueue chan WriteEvent
+	conn      *websocket.Conn
+	dialer    *websocket.Dialer
+	url       string
+
 	logger      func(LogRecord)
+	pingHandler func(string) error
+	pongHandler func(string) error
 	readTimeout time.Duration
 	started     chan struct{}
 	done        chan struct{}
@@ -132,68 +140,83 @@ type dualContextWS struct {
 	subsMu   sync.RWMutex
 	subs     map[int]func(MessageEvent)
 	subIDGen int
+
+	loopsWg sync.WaitGroup
 }
 
-func NewDualContextWS(conn *websocket.Conn, _ func(MessageEvent)) *dualContextWS {
+func NewDualContextWS(d *websocket.Dialer, url string) (*dualContextWS, error) {
+	conn, _, err := d.Dial(url, nil)
+	if err != nil {
+		return nil, errors.New("failed to connect to WebSocket: " + err.Error())
+	}
 	return &dualContextWS{
 		sendQueue:   make(chan WriteEvent, 64),
 		conn:        conn,
+		dialer:      d,
+		url:         url,
 		started:     make(chan struct{}),
 		done:        make(chan struct{}),
 		readTimeout: 5 * time.Second,
 		subs:        make(map[int]func(MessageEvent)),
-	}
+	}, nil
 }
 
 func (d *dualContextWS) Start(ctx context.Context) {
 	d.globalCtx = ctx
 	d.pauseCtx, d.pauseCancel = context.WithCancel(ctx)
-	go d.readLoop()
-	go d.writeLoop()
+
+	d.loopsWg.Add(2)
+
+	go func() {
+		d.readLoop()
+		d.loopsWg.Done()
+	}()
+
+	go func() {
+		d.writeLoop()
+		d.loopsWg.Done()
+	}()
+
 	close(d.started)
 }
 
-func (d *dualContextWS) readLoop() {
-	defer close(d.done)
+func (d *dualContextWS) Started() <-chan struct{} {
+	return d.started
+}
 
-	for {
-		select {
-		case <-d.globalCtx.Done():
-			return
-		case <-d.pauseCtx.Done():
-			return
-		default:
-		}
+func (d *dualContextWS) WaitAllLoops(timeout time.Duration) bool {
+	ch := make(chan struct{})
+	go func() {
+		d.loopsWg.Wait()
+		close(ch)
+	}()
 
-		if d.readTimeout > 0 {
-			d.conn.SetReadDeadline(time.Now().Add(d.readTimeout))
-		}
-		typ, msg, err := d.conn.ReadMessage()
-
-		select {
-		case <-d.globalCtx.Done():
-			return
-		case <-d.pauseCtx.Done():
-			return
-		default:
-		}
-
-		if d.logger != nil {
-			d.logger(LogRecord{Op: OpReceive, Body: msg, Err: err})
-		}
-
-		if err != nil {
-			d.emitToSubscribers(MessageEvent{Kind: KindError, Error: err})
-			return
-		}
-
-		kind := KindControl
-		if typ == websocket.TextMessage || typ == websocket.BinaryMessage {
-			kind = KindData
-		}
-
-		d.emitToSubscribers(MessageEvent{Kind: kind, Body: msg})
+	select {
+	case <-ch:
+		return true
+	case <-time.After(timeout):
+		return false
 	}
+}
+
+func (d *dualContextWS) Reconnect() error {
+	conn, _, err := d.dialer.Dial(d.url, nil)
+	if err != nil {
+		return err
+	}
+	old := d.conn
+	d.conn = conn
+	_ = old.Close()
+
+	// Reapply handlers after reconnect
+	if d.pingHandler != nil {
+		d.conn.SetPingHandler(d.pingHandler)
+	}
+	if d.pongHandler != nil {
+		d.conn.SetPongHandler(d.pongHandler)
+	}
+
+	return nil
 }
 
 func (d *dualContextWS) Halt() bool {
@@ -206,7 +229,11 @@ func (d *dualContextWS) Halt() bool {
 
 func (d *dualContextWS) Resume() {
 	d.pauseCtx, d.pauseCancel = context.WithCancel(d.globalCtx)
-	go d.readLoop()
+	d.loopsWg.Add(1)
+	go func() {
+		d.readLoop()
+		d.loopsWg.Done()
+	}()
 }
 
 func (d *dualContextWS) Done() <-chan struct{} {
@@ -300,6 +327,49 @@ func (d *dualContextWS) GetWriter() WebApiWriter {
 	return d.conn
 }
 
+func (d *dualContextWS) readLoop() {
+	defer close(d.done)
+
+	for {
+		select {
+		case <-d.globalCtx.Done():
+			return
+		case <-d.pauseCtx.Done():
+			return
+		default:
+		}
+
+		if d.readTimeout > 0 {
+			d.conn.SetReadDeadline(time.Now().Add(d.readTimeout))
+		}
+		typ, msg, err := d.conn.ReadMessage()
+
+		select {
+		case <-d.globalCtx.Done():
+			return
+		case <-d.pauseCtx.Done():
+			return
+		default:
+		}
+
+		if d.logger != nil {
+			d.logger(LogRecord{Op: OpReceive, Body: msg, Err: err})
+		}
+
+		if err != nil {
+			d.emitToSubscribers(MessageEvent{Kind: KindError, Error: err})
+			return
+		}
+
+		kind := KindControl
+		if typ == websocket.TextMessage || typ == websocket.BinaryMessage {
+			kind = KindData
+		}
+
+		d.emitToSubscribers(MessageEvent{Kind: kind, Body: msg})
+	}
+}
+
 func (d *dualContextWS) writeLoop() {
 	var deadline time.Time
 	var err error
@@ -347,5 +417,21 @@ func (d *dualContextWS) Send(evt WriteEvent) error {
 		return nil
 	case <-d.globalCtx.Done():
 		return errors.New("connection is closed")
+	}
+}
+
+// SetPingHandler sets the handler for incoming ping messages
+func (d *dualContextWS) SetPingHandler(handler func(string) error) {
+	d.pingHandler = handler
+	if d.conn != nil {
+		d.conn.SetPingHandler(handler)
+	}
+}
+
+// SetPongHandler sets the handler for incoming pong messages
+func (d *dualContextWS) SetPongHandler(handler func(string) error) {
+	d.pongHandler = handler
+	if d.conn != nil {
+		d.conn.SetPongHandler(handler)
 	}
 }
