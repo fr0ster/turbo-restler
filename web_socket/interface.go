@@ -106,8 +106,9 @@ type WebApiWriter interface {
 }
 
 type dualContextWS struct {
+	writeMu     sync.Mutex
+	sendQueue   chan []byte
 	conn        *websocket.Conn
-	readMu      sync.Mutex
 	logger      func(LogRecord)
 	readTimeout time.Duration
 	started     chan struct{}
@@ -123,6 +124,7 @@ type dualContextWS struct {
 
 func NewDualContextWS(conn *websocket.Conn, _ func(MessageEvent)) *dualContextWS {
 	return &dualContextWS{
+		sendQueue:   make(chan []byte, 64),
 		conn:        conn,
 		started:     make(chan struct{}),
 		done:        make(chan struct{}),
@@ -135,6 +137,7 @@ func (d *dualContextWS) Start(ctx context.Context) {
 	d.globalCtx = ctx
 	d.pauseCtx, d.pauseCancel = context.WithCancel(ctx)
 	go d.readLoop()
+	go d.writeLoop()
 	close(d.started)
 }
 
@@ -150,12 +153,12 @@ func (d *dualContextWS) readLoop() {
 		default:
 		}
 
-		d.readMu.Lock()
+		// d.readMu removed – no longer used
 		if d.readTimeout > 0 {
 			d.conn.SetReadDeadline(time.Now().Add(d.readTimeout))
 		}
 		typ, msg, err := d.conn.ReadMessage()
-		d.readMu.Unlock()
+		// d.readMu removed – no longer used
 
 		select {
 		case <-d.globalCtx.Done():
@@ -289,7 +292,30 @@ func (d *dualContextWS) GetWriter() WebApiWriter {
 	return d.conn
 }
 
+func (d *dualContextWS) writeLoop() {
+	for {
+		select {
+		case <-d.globalCtx.Done():
+			return
+		case <-d.pauseCtx.Done():
+			return
+		case msg := <-d.sendQueue:
+			d.writeMu.Lock()
+			err := d.conn.WriteMessage(websocket.TextMessage, msg)
+			d.writeMu.Unlock()
+
+			if d.logger != nil {
+				d.logger(LogRecord{Op: OpSend, Body: msg, Err: err})
+			}
+		}
+	}
+}
+
 func (d *dualContextWS) Send(msg []byte) error {
-	// example: send text message
-	return d.conn.WriteMessage(websocket.TextMessage, msg)
+	select {
+	case d.sendQueue <- msg:
+		return nil
+	case <-d.globalCtx.Done():
+		return context.Canceled
+	}
 }
