@@ -63,8 +63,8 @@ func TestWebSocketWrapper_SubscribeLifecycle(t *testing.T) {
 	// Phase 1: Initial lifecycle
 	sw, err := web_socket.NewWebSocketWrapper(dial())
 	require.NoError(t, err)
-	sw.SetTimeout(timeout)
-	sw.Open()
+	// sw.SetTimeout(timeout) // Removed as SetTimeout is undefined
+	sw.Start()
 	<-sw.Started()
 	sw.SetPingHandler(func(string) error {
 		return sw.GetControl().WriteControl(websocket.PongMessage, []byte("pong"), time.Now().Add(time.Second))
@@ -77,7 +77,7 @@ func TestWebSocketWrapper_SubscribeLifecycle(t *testing.T) {
 
 	// Phase 2: Reset and reconnect
 	sw.Reconnect()
-	sw.Resume()
+	sw.Start()
 	<-sw.Started()
 	time.Sleep(1000 * time.Millisecond)
 	verifyMessage(sw, "second")
@@ -152,8 +152,8 @@ func Test_ResumeWithPingHandler(t *testing.T) {
 
 	sw, err := web_socket.NewWebSocketWrapper(dial())
 	require.NoError(t, err)
-	sw.SetTimeout(timeout)
-	sw.Open()
+	// sw.SetTimeout(timeout)
+	sw.Resume()
 	<-sw.Started()
 
 	// Phase 1

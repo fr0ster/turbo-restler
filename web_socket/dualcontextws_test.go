@@ -47,7 +47,7 @@ func TestDualContextWS_BasicEcho(t *testing.T) {
 	url, cleanup := startEchoServer(t)
 	defer cleanup()
 
-	ws, err := web_socket.NewDualContextWS(websocket.DefaultDialer, url)
+	ws, err := web_socket.NewWebSocketWrapper(websocket.DefaultDialer, url)
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -88,7 +88,7 @@ func TestDualContextWS_SendWithCallbackAndErrChan(t *testing.T) {
 	url, cleanup := startEchoServer(t)
 	defer cleanup()
 
-	ws, err := web_socket.NewDualContextWS(websocket.DefaultDialer, url)
+	ws, err := web_socket.NewWebSocketWrapper(websocket.DefaultDialer, url)
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -132,7 +132,7 @@ func TestDualContextWS_ManyConcurrentConsumers(t *testing.T) {
 	url, cleanup := startEchoServer(t)
 	defer cleanup()
 
-	ws, err := web_socket.NewDualContextWS(websocket.DefaultDialer, url)
+	ws, err := web_socket.NewWebSocketWrapper(websocket.DefaultDialer, url)
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -176,7 +176,7 @@ func TestDualContextWS_SubscribeUnsubscribe(t *testing.T) {
 	url, cleanup := startEchoServer(t)
 	defer cleanup()
 
-	ws, err := web_socket.NewDualContextWS(websocket.DefaultDialer, url)
+	ws, err := web_socket.NewWebSocketWrapper(websocket.DefaultDialer, url)
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -215,7 +215,7 @@ func TestDualContextWS_LoggerCalled(t *testing.T) {
 	url, cleanup := startEchoServer(t)
 	defer cleanup()
 
-	ws, err := web_socket.NewDualContextWS(websocket.DefaultDialer, url)
+	ws, err := web_socket.NewWebSocketWrapper(websocket.DefaultDialer, url)
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -247,7 +247,7 @@ func TestDualContextWS_HandlerPanic(t *testing.T) {
 	url, cleanup := startEchoServer(t)
 	defer cleanup()
 
-	ws, err := web_socket.NewDualContextWS(websocket.DefaultDialer, url)
+	ws, err := web_socket.NewWebSocketWrapper(websocket.DefaultDialer, url)
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
