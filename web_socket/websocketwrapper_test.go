@@ -431,7 +431,7 @@ func TestNoPongServerClosesConnection(t *testing.T) {
 func TestWebSocketWrapper_GetReaderWriter(t *testing.T) {
 	// Start mock server
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		conn, err := websocket.Upgrade(w, r, nil, 1024, 1024)
+		conn, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
 		assert.NoError(t, err)
 		defer conn.Close()
 

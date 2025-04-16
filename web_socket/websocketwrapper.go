@@ -39,6 +39,19 @@ type MessageEvent struct {
 	Error error
 }
 
+// --- Socket-level interfaces ---
+type WebApiControlWriter interface {
+	WriteControl(messageType int, data []byte, deadline time.Time) error
+}
+
+type WebApiReader interface {
+	ReadMessage() (int, []byte, error)
+}
+
+type WebApiWriter interface {
+	WriteMessage(messageType int, data []byte) error
+}
+
 type WebSocketInterface interface {
 	Open()
 	Halt() bool
