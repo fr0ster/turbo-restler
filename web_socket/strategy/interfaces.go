@@ -1,9 +1,10 @@
 package strategy
 
-import "time"
+import (
+	"time"
+)
 
 // --- Sub-strategy interfaces ---
-
 type ReadStrategy interface {
 	OnReadError(err error) (fatal bool)
 	OnCloseFrame()
@@ -28,10 +29,18 @@ type FSMSignalingStrategy interface {
 	WaitForStop(ch <-chan struct{}, timeout time.Duration) bool
 }
 
+type ReconnectStrategy interface {
+	ShouldReconnect() bool
+	ReconnectBefore() error
+	ReconnectAfter() error
+	HandleReconnectError(err error)
+}
+
 // WrapperStrategy combines all behavioral sub-interfaces.
 type WrapperStrategy interface {
 	ReadStrategy
 	WriteStrategy
 	ShutdownStrategy
 	FSMSignalingStrategy
+	ReconnectStrategy
 }

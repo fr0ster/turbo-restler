@@ -160,12 +160,9 @@ func NewWebSocketWrapper(d *websocket.Dialer, url string) (WebSocketClientInterf
 }
 
 func WrapServerConn(conn *websocket.Conn) WebSocketServerInterface {
-	is_server := &atomic.Bool{}
-	is_server.Store(true)
 	strategy := strategy.NewDefaultStrategy()
-	return &webSocketWrapper{
+	wrapper := &webSocketWrapper{
 		conn:      conn,
-		isServer:  *is_server,
 		sendChan:  make(chan WriteEvent, 128),
 		started:   make(chan struct{}, 1),
 		stopped:   make(chan struct{}, 1),
@@ -174,6 +171,8 @@ func WrapServerConn(conn *websocket.Conn) WebSocketServerInterface {
 		timeout:   1000 * time.Millisecond,
 		strategy:  strategy,
 	}
+	wrapper.isServer.Store(true)
+	return wrapper
 }
 
 func (w *webSocketWrapper) SetMessageLogger(f func(LogRecord)) {
@@ -273,8 +272,8 @@ func (w *webSocketWrapper) Open() {
 	w.writeIsWorked.Store(false)
 	w.started = make(chan struct{}, 1)
 	w.stopped = make(chan struct{}, 1)
-	go w.readLoop(w.ctx)
-	go w.writeLoop(w.ctx)
+	go w.readLoop()
+	go w.writeLoop()
 }
 
 func (w *webSocketWrapper) Send(evt WriteEvent) error {
@@ -331,41 +330,34 @@ func (w *webSocketWrapper) checkStopped() {
 	}
 }
 
-func (w *webSocketWrapper) readLoop(ctx context.Context) {
+func (w *webSocketWrapper) readLoop() {
 	defer func() {
-		if w.isServer.Load() {
-			w.loopsAreRunning.Store(false)
-			select {
-			case w.stopped <- struct{}{}:
-			default:
-			}
-		} else {
-			if w.readIsWorked.Load() {
-				w.readIsWorked.Store(false)
-			}
-			w.checkStopped()
-		}
+		w.readIsWorked.Store(false)
+		strategy.MarkCycleStopped(
+			&w.readIsWorked, &w.writeIsWorked,
+			&w.loopsAreRunning, w.strategy, w.stopped,
+		)
 	}()
 
 	for {
 		select {
-		case <-ctx.Done():
-			// Вихід при скасуванні контексту
+		case <-w.ctx.Done():
 			return
 		default:
 		}
 
-		if !w.readIsWorked.Load() {
-			w.readIsWorked.Store(true)
-		}
-		w.checkStarted()
+		strategy.MarkCycleStarted(
+			"read",
+			&w.readIsWorked, &w.writeIsWorked,
+			&w.loopsAreRunning, w.strategy, w.started,
+		)
 
 		w.readMu.Lock()
 		typ, msg, err := w.conn.ReadMessage()
 		w.readMu.Unlock()
 
 		select {
-		case <-ctx.Done():
+		case <-w.ctx.Done():
 			return
 		default:
 		}
@@ -375,53 +367,50 @@ func (w *webSocketWrapper) readLoop(ctx context.Context) {
 		}
 
 		if err != nil {
-			// помилка з'єднання від сервера або розрив
 			if w.strategy.OnReadError(err) {
 				if w.onDisconnect != nil {
 					w.onDisconnect()
 				}
 				w.strategy.OnCloseFrame()
-				w.conn.Close()
+				_ = w.conn.Close()
 				return
 			}
-
 			w.emit(MessageEvent{Kind: KindError, Error: err})
 			continue
 		}
 
-		// Визначаємо тип повідомлення
 		kind := KindControl
 		if typ == websocket.TextMessage || typ == websocket.BinaryMessage {
 			kind = KindData
 		}
 
-		// Еміт події
 		w.emit(MessageEvent{Kind: kind, Body: msg})
 	}
 }
 
-func (w *webSocketWrapper) writeLoop(ctx context.Context) {
+func (w *webSocketWrapper) writeLoop() {
 	defer func() {
-		if w.writeIsWorked.Load() {
-			w.writeIsWorked.Store(false)
-		}
-		w.checkStopped()
+		w.writeIsWorked.Store(false)
+		w.strategy.OnBeforeWriteLoopExit()
+		strategy.MarkCycleStopped(
+			&w.readIsWorked, &w.writeIsWorked,
+			&w.loopsAreRunning, w.strategy, w.stopped,
+		)
 	}()
 
 	for {
-		if !w.writeIsWorked.Load() {
-			w.writeIsWorked.Store(true)
-		}
-		w.checkStarted()
+		strategy.MarkCycleStarted(
+			"write",
+			&w.readIsWorked, &w.writeIsWorked,
+			&w.loopsAreRunning, w.strategy, w.started,
+		)
 
 		select {
-		case <-ctx.Done():
+		case <-w.ctx.Done():
 			if w.strategy.ShouldExitWriteLoop(len(w.sendChan) == 0, w.strategy.IsShutdownRequested()) {
-				w.strategy.OnBeforeWriteLoopExit()
 				return
 			}
 		case evt := <-w.sendChan:
-
 			w.writeMu.Lock()
 			err := w.conn.WriteMessage(websocket.TextMessage, evt.Body)
 			w.writeMu.Unlock()
@@ -450,48 +439,16 @@ func (w *webSocketWrapper) Resume() {
 	w.SetReadTimeout(0)
 	w.SetWriteTimeout(0)
 	w.ctx, w.cancel = context.WithCancel(context.Background())
-	go w.readLoop(w.ctx)
-	go w.writeLoop(w.ctx)
+	go w.readLoop()
+	go w.writeLoop()
 }
 
 func (w *webSocketWrapper) WaitStarted() bool {
-	if w.IsStarted() {
-		return true
-	}
-	timer := time.NewTimer(w.getTimeout())
-	defer timer.Stop()
-
-	done := false
-
-	for !done {
-		select {
-		case <-w.started:
-			done = true
-		case <-timer.C:
-			return false
-		}
-	}
-	return true
+	return w.strategy.WaitForStart(w.started, w.getTimeout())
 }
 
 func (w *webSocketWrapper) WaitStopped() bool {
-	if w.IsStopped() {
-		return true
-	}
-	timer := time.NewTimer(w.getTimeout())
-	defer timer.Stop()
-
-	done := false
-
-	for !done {
-		select {
-		case <-w.stopped:
-			done = true
-		case <-timer.C:
-			return false
-		}
-	}
-	return true
+	return w.strategy.WaitForStop(w.stopped, w.getTimeout())
 }
 
 func (w *webSocketWrapper) GetControl() WebApiControlWriter {
@@ -510,43 +467,52 @@ func (w *webSocketWrapper) Halt() bool {
 	if !w.readIsWorked.Load() && !w.writeIsWorked.Load() {
 		return true
 	}
+
+	// Сигналізуємо стратегії про необхідність завершення
+	w.strategy.RequestShutdown()
+
+	// Скидаємо канали, щоб мати актуальне очікування
 	w.started = make(chan struct{}, 1)
 	w.stopped = make(chan struct{}, 1)
-	f := func(timeOut time.Duration) bool {
-		if timeOut != 0 {
-			w.SetReadTimeout(timeOut / 2)
-			w.SetWriteTimeout(timeOut / 2)
-		} else {
-			// Stop the read loop
-			if w.cancel != nil {
-				w.cancel()
-			}
+
+	// Пробуємо мʼяко: без скасування контексту, з таймаутами на I/O
+	w.SetReadTimeout(w.getTimeout() / 2)
+	w.SetWriteTimeout(w.getTimeout() / 2)
+
+	if !w.strategy.WaitForStop(w.stopped, w.getTimeout()/2) {
+		// Примусове завершення: скасовуємо контекст
+		if w.cancel != nil {
+			w.cancel()
 		}
-		ok := w.WaitStopped()
+		ok := w.strategy.WaitForStop(w.stopped, w.getTimeout())
+		// Відновлення поведінки по замовчуванню
 		w.SetReadTimeout(0)
 		w.SetWriteTimeout(0)
 		return ok
 	}
-	if !f(0) {
-		return f(w.getTimeout())
-	} else {
-		return true
-	}
+
+	// Відновлення I/O
+	w.SetReadTimeout(0)
+	w.SetWriteTimeout(0)
+	return true
 }
 
 func (w *webSocketWrapper) Close() error {
-	ok := w.Halt()
-	if !ok {
+	// Сигналізуємо стратегії завершення
+	w.strategy.RequestShutdown()
+
+	// 🔽 Надішли CloseMessage перед закриттям TCP-з'єднання
+	_ = w.conn.WriteMessage(
+		websocket.CloseMessage,
+		websocket.FormatCloseMessage(websocket.CloseNormalClosure, "client closing"),
+	)
+
+	// Чекаємо на завершення циклів
+	if !w.Halt() {
 		return errors.New("timeout waiting for loops to finish")
 	}
 
-	// 🔽 Надішли CloseMessage перед закриттям TCP-з'єднання
-	_ = w.conn.WriteMessage(websocket.CloseMessage,
-		websocket.FormatCloseMessage(websocket.CloseNormalClosure, "client closing"))
-
-	// Дай серверу час відповісти
-	time.Sleep(w.getTimeout())
-
+	// onDisconnect може бути викликано в readLoop при помилці, але повторний виклик — безпечний
 	if w.onDisconnect != nil {
 		w.onDisconnect()
 	}
@@ -555,16 +521,41 @@ func (w *webSocketWrapper) Close() error {
 }
 
 func (w *webSocketWrapper) Reconnect() error {
-	conn, _, err := w.dialer.Dial(w.url, nil)
-	if err != nil {
+	if w.readIsWorked.Load() || w.writeIsWorked.Load() {
+		return errors.New("cannot reconnect: read/write loops are still running")
+	}
+
+	if !w.strategy.ShouldReconnect() {
+		return errors.New("reconnect denied by strategy")
+	}
+
+	if err := w.strategy.ReconnectBefore(); err != nil {
 		return err
 	}
+
+	conn, _, err := w.dialer.Dial(w.url, nil)
+	if err != nil {
+		w.strategy.HandleReconnectError(err)
+		return err
+	}
+
 	old := w.conn
 	w.conn = conn
 	_ = old.Close()
+
+	// Скидаємо флаги (цикли ще не запущені)
+	w.readIsWorked.Store(false)
+	w.writeIsWorked.Store(false)
+	w.loopsAreRunning.Store(false)
+
+	if err := w.strategy.ReconnectAfter(); err != nil {
+		return err
+	}
+
 	if w.onConnected != nil {
 		w.onConnected()
 	}
+
 	return nil
 }
 

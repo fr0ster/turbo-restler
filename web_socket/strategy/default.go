@@ -104,3 +104,66 @@ func (s *DefaultStrategy) WaitForStop(ch <-chan struct{}, timeout time.Duration)
 		return false
 	}
 }
+
+// --- Wrapper helpers ---
+
+// MarkCycleStarted sets the flag for a specific loop and emits Started if both are ready.
+func MarkCycleStarted(kind string, readIsWorked, writeIsWorked *atomic.Bool, loopsAreRunning *atomic.Bool, strategy FSMSignalingStrategy, chStarted chan struct{}) {
+	if loopsAreRunning.Load() {
+		return
+	}
+
+	switch kind {
+	case "read":
+		if !readIsWorked.Load() {
+			readIsWorked.Store(true)
+		}
+	case "write":
+		if !writeIsWorked.Load() {
+			writeIsWorked.Store(true)
+		}
+	}
+
+	if strategy.OnCycleStarted(readIsWorked.Load(), writeIsWorked.Load()) {
+		loopsAreRunning.Store(true)
+		strategy.EmitStartedSignal(chStarted)
+	}
+}
+
+// MarkCycleStopped checks if both loops have stopped and emits Stopped if so.
+func MarkCycleStopped(
+	readIsWorked, writeIsWorked *atomic.Bool,
+	loopsAreRunning *atomic.Bool,
+	strategy FSMSignalingStrategy,
+	chStopped chan struct{},
+) {
+	if !loopsAreRunning.Load() {
+		return
+	}
+
+	if strategy.OnCycleStopped(!readIsWorked.Load(), !writeIsWorked.Load()) {
+		loopsAreRunning.Store(false)
+		strategy.EmitStoppedSignal(chStopped)
+	}
+}
+
+// --- ReconnectStrategy (default) ---
+
+func (s *DefaultStrategy) ShouldReconnect() bool {
+	// За замовчуванням реконнект дозволено завжди
+	return true
+}
+
+func (s *DefaultStrategy) ReconnectBefore() error {
+	// Нічого не робимо перед реконнектом
+	return nil
+}
+
+func (s *DefaultStrategy) ReconnectAfter() error {
+	// Нічого не робимо після реконнекту
+	return nil
+}
+
+func (s *DefaultStrategy) HandleReconnectError(err error) {
+	// За замовчуванням помилка реконнекту ігнорується
+}
