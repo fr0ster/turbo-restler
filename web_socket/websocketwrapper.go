@@ -375,18 +375,16 @@ func (w *webSocketWrapper) readLoop(ctx context.Context) {
 		}
 
 		if err != nil {
-			if w.onDisconnect != nil {
-				w.onDisconnect()
-			}
-
-			// Обробка очікуваних помилок
-			if isFatalError(err) {
-				w.emit(MessageEvent{Kind: KindFatalError, Error: err})
+			// помилка з'єднання від сервера або розрив
+			if w.strategy.OnReadError(err) {
+				if w.onDisconnect != nil {
+					w.onDisconnect()
+				}
+				w.strategy.OnCloseFrame()
 				w.conn.Close()
 				return
 			}
 
-			// Неочікувані помилки — теж вихід
 			w.emit(MessageEvent{Kind: KindError, Error: err})
 			continue
 		}
@@ -418,7 +416,10 @@ func (w *webSocketWrapper) writeLoop(ctx context.Context) {
 
 		select {
 		case <-ctx.Done():
-			return
+			if w.strategy.ShouldExitWriteLoop(len(w.sendChan) == 0, w.strategy.IsShutdownRequested()) {
+				w.strategy.OnBeforeWriteLoopExit()
+				return
+			}
 		case evt := <-w.sendChan:
 
 			w.writeMu.Lock()
