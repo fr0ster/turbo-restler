@@ -58,6 +58,12 @@ func (s *DefaultStrategy) IsShutdownRequested() bool {
 	return s.shutdownRequested.Load()
 }
 
+// --- RemoteCloseStrategy ---
+func (s *DefaultStrategy) OnRemoteClose(code int, reason string) error {
+	s.RequestShutdown()
+	return nil
+}
+
 // --- FSMSignalingStrategy ---
 func (s *DefaultStrategy) OnCycleStarted(readStarted, writeStarted bool) bool {
 	return readStarted && writeStarted
@@ -105,6 +111,27 @@ func (s *DefaultStrategy) WaitForStop(ch <-chan struct{}, timeout time.Duration)
 	}
 }
 
+// --- ReconnectStrategy (default) ---
+
+func (s *DefaultStrategy) ShouldReconnect() bool {
+	// За замовчуванням реконнект дозволено завжди
+	return true
+}
+
+func (s *DefaultStrategy) ReconnectBefore() error {
+	// Нічого не робимо перед реконнектом
+	return nil
+}
+
+func (s *DefaultStrategy) ReconnectAfter() error {
+	// Нічого не робимо після реконнекту
+	return nil
+}
+
+func (s *DefaultStrategy) HandleReconnectError(err error) {
+	// За замовчуванням помилка реконнекту ігнорується
+}
+
 // --- Wrapper helpers ---
 
 // MarkCycleStarted sets the flag for a specific loop and emits Started if both are ready.
@@ -145,25 +172,4 @@ func MarkCycleStopped(
 		loopsAreRunning.Store(false)
 		strategy.EmitStoppedSignal(chStopped)
 	}
-}
-
-// --- ReconnectStrategy (default) ---
-
-func (s *DefaultStrategy) ShouldReconnect() bool {
-	// За замовчуванням реконнект дозволено завжди
-	return true
-}
-
-func (s *DefaultStrategy) ReconnectBefore() error {
-	// Нічого не робимо перед реконнектом
-	return nil
-}
-
-func (s *DefaultStrategy) ReconnectAfter() error {
-	// Нічого не робимо після реконнекту
-	return nil
-}
-
-func (s *DefaultStrategy) HandleReconnectError(err error) {
-	// За замовчуванням помилка реконнекту ігнорується
 }

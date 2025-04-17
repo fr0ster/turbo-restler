@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -92,6 +93,7 @@ type WebSocketCommonInterface interface {
 	SetStoppedHandler(f func())
 	SetConnectedHandler(f func())
 	SetDisconnectHandler(f func())
+	SetRemoteCloseHandler(fn func(code int, reason string) error)
 }
 
 type WriteCallback func(error)
@@ -136,7 +138,8 @@ type webSocketWrapper struct {
 	onConnected  func()
 	onDisconnect func()
 
-	strategy strategy.WrapperStrategy
+	strategy      strategy.WrapperStrategy
+	onRemoteClose func(code int, reason string) error
 }
 
 func NewWebSocketWrapper(d *websocket.Dialer, url string) (WebSocketClientInterface, error) {
@@ -266,6 +269,13 @@ func (w *webSocketWrapper) Open() {
 	if w.loopsAreRunning.Load() {
 		return
 	}
+	w.conn.SetCloseHandler(func(code int, text string) error {
+		w.strategy.OnRemoteClose(code, text)
+		if w.onRemoteClose != nil {
+			w.onRemoteClose(code, text)
+		}
+		return nil
+	})
 	w.ctx, w.cancel = context.WithCancel(context.Background())
 	w.loopsAreRunning.Store(false)
 	w.readIsWorked.Store(false)
@@ -334,8 +344,11 @@ func (w *webSocketWrapper) readLoop() {
 	defer func() {
 		w.readIsWorked.Store(false)
 		strategy.MarkCycleStopped(
-			&w.readIsWorked, &w.writeIsWorked,
-			&w.loopsAreRunning, w.strategy, w.stopped,
+			&w.readIsWorked,
+			&w.writeIsWorked,
+			&w.loopsAreRunning,
+			w.strategy,
+			w.stopped,
 		)
 	}()
 
@@ -346,11 +359,7 @@ func (w *webSocketWrapper) readLoop() {
 		default:
 		}
 
-		strategy.MarkCycleStarted(
-			"read",
-			&w.readIsWorked, &w.writeIsWorked,
-			&w.loopsAreRunning, w.strategy, w.started,
-		)
+		strategy.MarkCycleStarted("read", &w.readIsWorked, &w.writeIsWorked, &w.loopsAreRunning, w.strategy, w.started)
 
 		w.readMu.Lock()
 		typ, msg, err := w.conn.ReadMessage()
@@ -367,23 +376,26 @@ func (w *webSocketWrapper) readLoop() {
 		}
 
 		if err != nil {
+			w.emit(MessageEvent{Kind: KindError, Error: err})
 			if w.strategy.OnReadError(err) {
 				if w.onDisconnect != nil {
 					w.onDisconnect()
 				}
 				w.strategy.OnCloseFrame()
-				_ = w.conn.Close()
+				w.conn.Close()
 				return
 			}
-			w.emit(MessageEvent{Kind: KindError, Error: err})
+
 			continue
 		}
 
+		// Визначаємо тип повідомлення
 		kind := KindControl
 		if typ == websocket.TextMessage || typ == websocket.BinaryMessage {
 			kind = KindData
 		}
 
+		// Еміт події
 		w.emit(MessageEvent{Kind: kind, Body: msg})
 	}
 }
@@ -498,25 +510,27 @@ func (w *webSocketWrapper) Halt() bool {
 }
 
 func (w *webSocketWrapper) Close() error {
-	// Сигналізуємо стратегії завершення
-	w.strategy.RequestShutdown()
+	// 💡 Ініціюємо зупинку, чекаємо з тайм-аутом
+	ok := w.Halt()
+	if !ok {
+		return errors.New("timeout waiting for loops to finish")
+	}
 
-	// 🔽 Надішли CloseMessage перед закриттям TCP-з'єднання
+	// ✅ Пишемо CloseMessage (вихід ініційований клієнтом)
 	_ = w.conn.WriteMessage(
 		websocket.CloseMessage,
 		websocket.FormatCloseMessage(websocket.CloseNormalClosure, "client closing"),
 	)
 
-	// Чекаємо на завершення циклів
-	if !w.Halt() {
-		return errors.New("timeout waiting for loops to finish")
-	}
+	// 🕒 Даємо серверу шанс відповісти (не читаємо відповідь, просто чекаємо)
+	time.Sleep(w.getTimeout())
 
-	// onDisconnect може бути викликано в readLoop при помилці, але повторний виклик — безпечний
+	// 🔔 Сповіщаємо про розрив
 	if w.onDisconnect != nil {
 		w.onDisconnect()
 	}
 
+	// 🔒 Фінальне закриття сокета
 	return w.conn.Close()
 }
 
@@ -542,6 +556,14 @@ func (w *webSocketWrapper) Reconnect() error {
 	old := w.conn
 	w.conn = conn
 	_ = old.Close()
+
+	w.conn.SetCloseHandler(func(code int, text string) error {
+		w.strategy.OnRemoteClose(code, text)
+		if w.onRemoteClose != nil {
+			w.onRemoteClose(code, text)
+		}
+		return nil
+	})
 
 	// Скидаємо флаги (цикли ще не запущені)
 	w.readIsWorked.Store(false)
@@ -573,4 +595,25 @@ func (w *webSocketWrapper) SetConnectedHandler(f func()) {
 
 func (w *webSocketWrapper) SetDisconnectHandler(f func()) {
 	w.onDisconnect = f
+}
+
+func (w *webSocketWrapper) SetRemoteCloseHandler(fn func(code int, reason string) error) {
+	w.onRemoteClose = fn
+}
+
+func IgnoreExpectedErrorsLogger(base func(evt LogRecord)) func(evt LogRecord) {
+	return func(evt LogRecord) {
+		if evt.Err != nil {
+			msg := evt.Err.Error()
+			switch {
+			case strings.Contains(msg, "close sent"),
+				strings.Contains(msg, "use of closed network connection"),
+				strings.Contains(msg, "going away"),
+				strings.Contains(msg, "i/o timeout"),
+				strings.Contains(msg, "EOF"):
+				return // ✅ очікувана помилка — ігноруємо
+			}
+		}
+		base(evt)
+	}
 }

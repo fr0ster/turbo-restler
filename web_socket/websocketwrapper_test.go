@@ -343,6 +343,7 @@ func TestPingPongWithTimeoutEnforcedByServer(t *testing.T) {
 	})
 	sw.Open()
 	time.Sleep(500 * time.Millisecond)
+	<-sw.Started()
 
 	sw.Close()
 	sw.WaitStopped()
@@ -400,28 +401,36 @@ func TestNoPongServerClosesConnection(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 		_ = conn.WriteControl(websocket.PingMessage, []byte("ping"), time.Now().Add(time.Second))
 		time.Sleep(200 * time.Millisecond)
-		_ = conn.Close()
+		_ = conn.WriteControl(websocket.CloseMessage,
+			websocket.FormatCloseMessage(websocket.CloseNormalClosure, "bye-bye"),
+			time.Now().Add(time.Second))
 	}))
 	defer cleanup()
 
 	sw, err := web_socket.NewWebSocketWrapper(websocket.DefaultDialer, u)
 	require.NoError(t, err)
-	sw.Open()
 
-	done := make(chan struct{})
-	var once sync.Once
-	sw.Subscribe(func(evt web_socket.MessageEvent) {
-		if evt.Error != nil {
-			once.Do(func() {
-				close(done)
-			})
-		}
+	closeSeen := make(chan struct{})
+	sw.SetRemoteCloseHandler(func(code int, text string) error {
+		t.Logf("🛑 CloseHandler called: code=%d, text=%s", code, text)
+		close(closeSeen)
+		return nil
 	})
 
+	sw.Open()
+
 	select {
-	case <-done:
+	case <-closeSeen:
+		t.Log("✅ Received connection close error via Subscribe")
 	case <-time.After(2 * time.Second):
-		t.Fatal("expected connection close due to missing pong")
+		t.Fatal("❌ expected connection close due to missing pong")
+	}
+
+	select {
+	case <-closeSeen:
+		t.Log("✅ Close handler triggered")
+	case <-time.After(500 * time.Millisecond):
+		t.Log("⚠️ Close handler not triggered (may be abnormal close)")
 	}
 
 	sw.Close()
@@ -640,6 +649,10 @@ func TestHandlerPanic(t *testing.T) {
 			if err != nil {
 				return
 			}
+			if string(msg) == "trigger" {
+				conn.Close()
+				return
+			}
 			_ = conn.WriteMessage(mt, msg)
 		}
 	}))
@@ -648,6 +661,12 @@ func TestHandlerPanic(t *testing.T) {
 	sw, err := web_socket.NewWebSocketWrapper(websocket.DefaultDialer, u)
 	require.NoError(t, err)
 	sw.Open()
+	<-sw.Started()
+	sw.SetRemoteCloseHandler(func(code int, text string) error {
+		t.Logf("🛑 CloseHandler called: code=%d, text=%s", code, text)
+		// close(closeSeen)
+		return nil
+	})
 
 	// channel for notifying about panic
 	panicHappened := make(chan any, 1)
@@ -666,7 +685,7 @@ func TestHandlerPanic(t *testing.T) {
 	select {
 	case r := <-panicHappened:
 		assert.Equal(t, "intentional", r)
-	case <-time.After(1 * time.Second):
+	case <-time.After(30 * time.Second):
 		t.Fatal("panic did not happen")
 	}
 

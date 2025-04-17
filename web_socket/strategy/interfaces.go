@@ -20,6 +20,10 @@ type ShutdownStrategy interface {
 	IsShutdownRequested() bool
 }
 
+type RemoteCloseStrategy interface {
+	OnRemoteClose(code int, reason string) error
+}
+
 type FSMSignalingStrategy interface {
 	OnCycleStarted(readStarted, writeStarted bool) (signal bool)
 	OnCycleStopped(readStopped, writeStopped bool) (signal bool)
@@ -41,6 +45,7 @@ type WrapperStrategy interface {
 	ReadStrategy
 	WriteStrategy
 	ShutdownStrategy
+	RemoteCloseStrategy
 	FSMSignalingStrategy
 	ReconnectStrategy
 }
