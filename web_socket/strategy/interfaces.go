@@ -2,13 +2,7 @@ package strategy
 
 import "time"
 
-// WrapperStrategy defines behavior for read/write lifecycle and error handling.
-type WrapperStrategy interface {
-	ReadStrategy
-	WriteStrategy
-	ShutdownStrategy
-	FSMSignalingStrategy
-}
+// --- Sub-strategy interfaces ---
 
 type ReadStrategy interface {
 	OnReadError(err error) (fatal bool)
@@ -28,8 +22,16 @@ type ShutdownStrategy interface {
 type FSMSignalingStrategy interface {
 	OnCycleStarted(readStarted, writeStarted bool) (signal bool)
 	OnCycleStopped(readStopped, writeStopped bool) (signal bool)
-	EmitStartedSignal(chan struct{})
-	EmitStoppedSignal(chan struct{})
+	EmitStartedSignal(ch chan struct{})
+	EmitStoppedSignal(ch chan struct{})
 	WaitForStart(ch <-chan struct{}, timeout time.Duration) bool
 	WaitForStop(ch <-chan struct{}, timeout time.Duration) bool
+}
+
+// WrapperStrategy combines all behavioral sub-interfaces.
+type WrapperStrategy interface {
+	ReadStrategy
+	WriteStrategy
+	ShutdownStrategy
+	FSMSignalingStrategy
 }
