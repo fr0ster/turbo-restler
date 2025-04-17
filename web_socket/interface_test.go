@@ -12,7 +12,7 @@ import (
 	web_socket "github.com/fr0ster/turbo-restler/web_socket"
 )
 
-func newTestWS(t *testing.T) web_socket.WebSocketInterface {
+func newTestWS(t *testing.T) web_socket.WebSocketClientInterface {
 	u, cleanup := StartWebSocketTestServer(http.HandlerFunc(echoHandler))
 	t.Cleanup(cleanup)
 

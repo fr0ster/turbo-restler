@@ -43,7 +43,7 @@ func TestWebSocketWrapper_SubscribeLifecycle(t *testing.T) {
 		return websocket.DefaultDialer, u
 	}
 
-	verifyMessage := func(sw web_socket.WebSocketInterface, msg string) {
+	verifyMessage := func(sw web_socket.WebSocketClientInterface, msg string) {
 		recv := make(chan string, 1)
 		id := sw.Subscribe(func(evt web_socket.MessageEvent) {
 			if evt.Kind == web_socket.KindData {

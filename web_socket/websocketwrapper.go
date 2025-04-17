@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+
+	strategy "github.com/fr0ster/turbo-restler/web_socket/strategy"
 )
 
 type LogOp string
@@ -53,7 +55,16 @@ type WebApiWriter interface {
 	WriteMessage(messageType int, data []byte) error
 }
 
-type WebSocketInterface interface {
+type WebSocketClientInterface interface {
+	WebSocketCommonInterface
+	Reconnect() error
+}
+
+type WebSocketServerInterface interface {
+	WebSocketCommonInterface
+}
+
+type WebSocketCommonInterface interface {
 	Open()
 	Halt() bool
 	Close() error
@@ -77,7 +88,6 @@ type WebSocketInterface interface {
 	IsStopped() bool
 	WaitStopped() bool
 	Resume()
-	Reconnect() error
 	SetStartedHandler(f func())
 	SetStoppedHandler(f func())
 	SetConnectedHandler(f func())
@@ -92,10 +102,11 @@ type WriteEvent struct {
 	ErrChan  chan error
 }
 
-type WebSocketWrapper struct {
-	conn   *websocket.Conn
-	dialer *websocket.Dialer
-	url    string
+type webSocketWrapper struct {
+	conn     *websocket.Conn
+	dialer   *websocket.Dialer
+	url      string
+	isServer atomic.Bool
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -124,14 +135,17 @@ type WebSocketWrapper struct {
 	onStopped    func()
 	onConnected  func()
 	onDisconnect func()
+
+	strategy strategy.WrapperStrategy
 }
 
-func NewWebSocketWrapper(d *websocket.Dialer, url string) (*WebSocketWrapper, error) {
+func NewWebSocketWrapper(d *websocket.Dialer, url string) (WebSocketClientInterface, error) {
 	conn, _, err := d.Dial(url, nil)
 	if err != nil {
 		return nil, errors.New("failed to connect to WebSocket: " + err.Error())
 	}
-	return &WebSocketWrapper{
+	strategy := strategy.NewDefaultStrategy()
+	return &webSocketWrapper{
 		conn:      conn,
 		dialer:    d,
 		url:       url,
@@ -141,22 +155,40 @@ func NewWebSocketWrapper(d *websocket.Dialer, url string) (*WebSocketWrapper, er
 		subs:      make(map[int]func(MessageEvent)),
 		timeoutMu: sync.RWMutex{},
 		timeout:   1000 * time.Millisecond,
+		strategy:  strategy,
 	}, nil
 }
 
-func (w *WebSocketWrapper) SetMessageLogger(f func(LogRecord)) {
+func WrapServerConn(conn *websocket.Conn) WebSocketServerInterface {
+	is_server := &atomic.Bool{}
+	is_server.Store(true)
+	strategy := strategy.NewDefaultStrategy()
+	return &webSocketWrapper{
+		conn:      conn,
+		isServer:  *is_server,
+		sendChan:  make(chan WriteEvent, 128),
+		started:   make(chan struct{}, 1),
+		stopped:   make(chan struct{}, 1),
+		subs:      make(map[int]func(MessageEvent)),
+		timeoutMu: sync.RWMutex{},
+		timeout:   1000 * time.Millisecond,
+		strategy:  strategy,
+	}
+}
+
+func (w *webSocketWrapper) SetMessageLogger(f func(LogRecord)) {
 	w.logger = f
 }
 
-func (w *WebSocketWrapper) SetPingHandler(f func(string) error) {
+func (w *webSocketWrapper) SetPingHandler(f func(string) error) {
 	w.conn.SetPingHandler(f)
 }
 
-func (w *WebSocketWrapper) SetPongHandler(f func(string) error) {
+func (w *webSocketWrapper) SetPongHandler(f func(string) error) {
 	w.conn.SetPongHandler(f)
 }
 
-func (w *WebSocketWrapper) SetReadTimeout(timeout time.Duration) {
+func (w *webSocketWrapper) SetReadTimeout(timeout time.Duration) {
 	if timeout != 0 {
 		w.conn.SetReadDeadline(time.Now().Add(timeout))
 	} else {
@@ -165,7 +197,7 @@ func (w *WebSocketWrapper) SetReadTimeout(timeout time.Duration) {
 	}
 }
 
-func (w *WebSocketWrapper) SetWriteTimeout(timeout time.Duration) {
+func (w *webSocketWrapper) SetWriteTimeout(timeout time.Duration) {
 	if timeout != 0 {
 		w.conn.SetWriteDeadline(time.Now().Add(timeout))
 	} else {
@@ -174,19 +206,19 @@ func (w *WebSocketWrapper) SetWriteTimeout(timeout time.Duration) {
 	}
 }
 
-func (w *WebSocketWrapper) getTimeout() time.Duration {
+func (w *webSocketWrapper) getTimeout() time.Duration {
 	w.timeoutMu.RLock()
 	defer w.timeoutMu.RUnlock()
 	return w.timeout
 }
 
-func (w *WebSocketWrapper) SetTimeout(timeout time.Duration) {
+func (w *webSocketWrapper) SetTimeout(timeout time.Duration) {
 	w.timeoutMu.Lock()
 	defer w.timeoutMu.Unlock()
 	w.timeout = timeout
 }
 
-func (w *WebSocketWrapper) Subscribe(f func(MessageEvent)) int {
+func (w *webSocketWrapper) Subscribe(f func(MessageEvent)) int {
 	id := int(w.subIDGen.Add(1))
 	w.subsMu.Lock()
 	w.subs[id] = f
@@ -194,19 +226,19 @@ func (w *WebSocketWrapper) Subscribe(f func(MessageEvent)) int {
 	return id
 }
 
-func (w *WebSocketWrapper) Unsubscribe(id int) {
+func (w *webSocketWrapper) Unsubscribe(id int) {
 	w.subsMu.Lock()
 	delete(w.subs, id)
 	w.subsMu.Unlock()
 }
 
-func (w *WebSocketWrapper) UnsubscribeAll() {
+func (w *webSocketWrapper) UnsubscribeAll() {
 	w.subsMu.Lock()
 	defer w.subsMu.Unlock()
 	w.subs = make(map[int]func(MessageEvent))
 }
 
-func (w *WebSocketWrapper) emit(evt MessageEvent) {
+func (w *webSocketWrapper) emit(evt MessageEvent) {
 	w.subsMu.RLock()
 	defer w.subsMu.RUnlock()
 	for _, handler := range w.subs {
@@ -214,23 +246,23 @@ func (w *WebSocketWrapper) emit(evt MessageEvent) {
 	}
 }
 
-func (w *WebSocketWrapper) Started() <-chan struct{} {
+func (w *webSocketWrapper) Started() <-chan struct{} {
 	return w.started
 }
 
-func (w *WebSocketWrapper) IsStarted() bool {
+func (w *webSocketWrapper) IsStarted() bool {
 	return w.loopsAreRunning.Load()
 }
 
-func (w *WebSocketWrapper) Stopped() <-chan struct{} {
+func (w *webSocketWrapper) Stopped() <-chan struct{} {
 	return w.stopped
 }
 
-func (w *WebSocketWrapper) IsStopped() bool {
+func (w *webSocketWrapper) IsStopped() bool {
 	return !w.loopsAreRunning.Load()
 }
 
-func (w *WebSocketWrapper) Open() {
+func (w *webSocketWrapper) Open() {
 	// Якщо цикли вже працюють — нічого не робимо
 	if w.loopsAreRunning.Load() {
 		return
@@ -245,7 +277,7 @@ func (w *WebSocketWrapper) Open() {
 	go w.writeLoop(w.ctx)
 }
 
-func (w *WebSocketWrapper) Send(evt WriteEvent) error {
+func (w *webSocketWrapper) Send(evt WriteEvent) error {
 	select {
 	case w.sendChan <- evt:
 		return nil
@@ -275,7 +307,7 @@ func isFatalError(err error) bool {
 	return false
 }
 
-func (w *WebSocketWrapper) checkStarted() {
+func (w *webSocketWrapper) checkStarted() {
 	if !w.loopsAreRunning.Load() {
 		if w.readIsWorked.Load() && w.writeIsWorked.Load() {
 			w.loopsAreRunning.Store(true)
@@ -287,7 +319,7 @@ func (w *WebSocketWrapper) checkStarted() {
 	}
 }
 
-func (w *WebSocketWrapper) checkStopped() {
+func (w *webSocketWrapper) checkStopped() {
 	if w.loopsAreRunning.Load() {
 		if !w.writeIsWorked.Load() && w.loopsAreRunning.Load() {
 			w.loopsAreRunning.Store(false)
@@ -299,12 +331,20 @@ func (w *WebSocketWrapper) checkStopped() {
 	}
 }
 
-func (w *WebSocketWrapper) readLoop(ctx context.Context) {
+func (w *webSocketWrapper) readLoop(ctx context.Context) {
 	defer func() {
-		if w.readIsWorked.Load() {
-			w.readIsWorked.Store(false)
+		if w.isServer.Load() {
+			w.loopsAreRunning.Store(false)
+			select {
+			case w.stopped <- struct{}{}:
+			default:
+			}
+		} else {
+			if w.readIsWorked.Load() {
+				w.readIsWorked.Store(false)
+			}
+			w.checkStopped()
 		}
-		w.checkStopped()
 	}()
 
 	for {
@@ -362,7 +402,7 @@ func (w *WebSocketWrapper) readLoop(ctx context.Context) {
 	}
 }
 
-func (w *WebSocketWrapper) writeLoop(ctx context.Context) {
+func (w *webSocketWrapper) writeLoop(ctx context.Context) {
 	defer func() {
 		if w.writeIsWorked.Load() {
 			w.writeIsWorked.Store(false)
@@ -399,7 +439,7 @@ func (w *WebSocketWrapper) writeLoop(ctx context.Context) {
 	}
 }
 
-func (w *WebSocketWrapper) Resume() {
+func (w *webSocketWrapper) Resume() {
 	w.WaitStopped()
 	w.loopsAreRunning.Store(false)
 	w.readIsWorked.Store(false)
@@ -413,7 +453,7 @@ func (w *WebSocketWrapper) Resume() {
 	go w.writeLoop(w.ctx)
 }
 
-func (w *WebSocketWrapper) WaitStarted() bool {
+func (w *webSocketWrapper) WaitStarted() bool {
 	if w.IsStarted() {
 		return true
 	}
@@ -433,7 +473,7 @@ func (w *WebSocketWrapper) WaitStarted() bool {
 	return true
 }
 
-func (w *WebSocketWrapper) WaitStopped() bool {
+func (w *webSocketWrapper) WaitStopped() bool {
 	if w.IsStopped() {
 		return true
 	}
@@ -453,19 +493,19 @@ func (w *WebSocketWrapper) WaitStopped() bool {
 	return true
 }
 
-func (w *WebSocketWrapper) GetControl() WebApiControlWriter {
+func (w *webSocketWrapper) GetControl() WebApiControlWriter {
 	return w.conn
 }
 
-func (w *WebSocketWrapper) GetReader() WebApiReader {
+func (w *webSocketWrapper) GetReader() WebApiReader {
 	return w.conn
 }
 
-func (w *WebSocketWrapper) GetWriter() WebApiWriter {
+func (w *webSocketWrapper) GetWriter() WebApiWriter {
 	return w.conn
 }
 
-func (w *WebSocketWrapper) Halt() bool {
+func (w *webSocketWrapper) Halt() bool {
 	if !w.readIsWorked.Load() && !w.writeIsWorked.Load() {
 		return true
 	}
@@ -493,7 +533,7 @@ func (w *WebSocketWrapper) Halt() bool {
 	}
 }
 
-func (w *WebSocketWrapper) Close() error {
+func (w *webSocketWrapper) Close() error {
 	ok := w.Halt()
 	if !ok {
 		return errors.New("timeout waiting for loops to finish")
@@ -513,7 +553,7 @@ func (w *WebSocketWrapper) Close() error {
 	return w.conn.Close()
 }
 
-func (w *WebSocketWrapper) Reconnect() error {
+func (w *webSocketWrapper) Reconnect() error {
 	conn, _, err := w.dialer.Dial(w.url, nil)
 	if err != nil {
 		return err
@@ -527,18 +567,18 @@ func (w *WebSocketWrapper) Reconnect() error {
 	return nil
 }
 
-func (w *WebSocketWrapper) SetStartedHandler(f func()) {
+func (w *webSocketWrapper) SetStartedHandler(f func()) {
 	w.onStarted = f
 }
 
-func (w *WebSocketWrapper) SetStoppedHandler(f func()) {
+func (w *webSocketWrapper) SetStoppedHandler(f func()) {
 	w.onStopped = f
 }
 
-func (w *WebSocketWrapper) SetConnectedHandler(f func()) {
+func (w *webSocketWrapper) SetConnectedHandler(f func()) {
 	w.onConnected = f
 }
 
-func (w *WebSocketWrapper) SetDisconnectHandler(f func()) {
+func (w *webSocketWrapper) SetDisconnectHandler(f func()) {
 	w.onDisconnect = f
 }
