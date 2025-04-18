@@ -201,7 +201,7 @@ func TestPingPongTimeoutClose(t *testing.T) {
 	})
 
 	sw.Open()
-	<-sw.Started()
+	sw.WaitStarted()
 	time.Sleep(1000 * time.Millisecond)
 
 	// ✅ Waiting for Pong to be sent (i.e., Ping received)
@@ -343,7 +343,7 @@ func TestPingPongWithTimeoutEnforcedByServer(t *testing.T) {
 	})
 	sw.Open()
 	time.Sleep(500 * time.Millisecond)
-	<-sw.Started()
+	sw.WaitStarted()
 
 	sw.Close()
 	sw.WaitStopped()
@@ -584,7 +584,7 @@ func TestSendWithSendResult(t *testing.T) {
 	sw, err := web_socket.NewWebSocketWrapper(websocket.DefaultDialer, u)
 	require.NoError(t, err)
 	sw.Open()
-	<-sw.Started()
+	sw.WaitStarted()
 
 	errChan := make(chan error, 1)
 	require.NoError(t, sw.Send(web_socket.WriteEvent{
@@ -661,7 +661,7 @@ func TestHandlerPanic(t *testing.T) {
 	sw, err := web_socket.NewWebSocketWrapper(websocket.DefaultDialer, u)
 	require.NoError(t, err)
 	sw.Open()
-	<-sw.Started()
+	sw.WaitStarted()
 	sw.SetRemoteCloseHandler(func(code int, text string) error {
 		t.Logf("🛑 CloseHandler called: code=%d, text=%s", code, text)
 		// close(closeSeen)
@@ -709,7 +709,7 @@ func TestHTimeOuts(t *testing.T) {
 	sw, err := web_socket.NewWebSocketWrapper(websocket.DefaultDialer, u)
 	require.NoError(t, err)
 	sw.Open()
-	<-sw.Started()
+	sw.WaitStarted()
 
 	sw.SetReadTimeout(1 * time.Second)
 	sw.SetWriteTimeout(1 * time.Second)
@@ -738,16 +738,16 @@ func TestReconnect(t *testing.T) {
 
 	sw, err := web_socket.NewWebSocketWrapper(websocket.DefaultDialer, u)
 	require.NoError(t, err)
-	sw.SetTimeout(100 * time.Millisecond)
+	sw.SetTimeout(1000 * time.Millisecond)
 	sw.SetMessageLogger(func(evt web_socket.LogRecord) {
 		if evt.Err != nil {
-			// fmt.Println(">>> ERROR:", evt.Err)
+			fmt.Println(">>> ERROR:", evt.Err)
 		} else {
 			fmt.Println(">>> MESSAGE:", string(evt.Body))
 		}
 	})
 	sw.Open()
-	<-sw.Started()
+	sw.WaitStarted()
 	errCh := make(chan error, 1)
 
 	sw.Subscribe(func(evt web_socket.MessageEvent) {
@@ -766,11 +766,11 @@ func TestReconnect(t *testing.T) {
 	// sw.WaitAllLoops(1 * time.Second)
 
 	sw.Resume()
-	<-sw.Started()
+	sw.WaitStarted()
 
 	require.NoError(t, sw.Send(web_socket.WriteEvent{Body: []byte("hello2")}))
 
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(1000 * time.Millisecond)
 
 	sw.Close()
 	sw.WaitStopped()

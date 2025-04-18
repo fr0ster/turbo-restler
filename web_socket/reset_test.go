@@ -65,7 +65,7 @@ func TestWebSocketWrapper_SubscribeLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	sw.SetTimeout(timeout)
 	sw.Open()
-	<-sw.Started()
+	sw.WaitStarted()
 	sw.SetPingHandler(func(string) error {
 		return sw.GetControl().WriteControl(websocket.PongMessage, []byte("pong"), time.Now().Add(time.Second))
 	})
@@ -78,7 +78,7 @@ func TestWebSocketWrapper_SubscribeLifecycle(t *testing.T) {
 	// Phase 2: Reset and reconnect
 	sw.Reconnect()
 	sw.Resume()
-	<-sw.Started()
+	sw.WaitStarted()
 	time.Sleep(1000 * time.Millisecond)
 	verifyMessage(sw, "second")
 	sw.Close()
@@ -153,7 +153,7 @@ func Test_ResumeWithPingHandler(t *testing.T) {
 	require.NoError(t, err)
 	sw.SetTimeout(timeout)
 	sw.Open()
-	<-sw.Started()
+	sw.WaitStarted()
 
 	// Phase 1
 	// sw.SetPingHandler(func(string) error {
@@ -180,7 +180,7 @@ func Test_ResumeWithPingHandler(t *testing.T) {
 	// Phase 2
 	sw.Reconnect()
 	sw.Resume()
-	<-sw.Started()
+	sw.WaitStarted()
 	require.NoError(t, sw.Send(web_socket.WriteEvent{Body: []byte("second")}))
 	time.Sleep(100 * time.Millisecond)
 
@@ -328,7 +328,7 @@ func Test_ResumeWithPingHandlerV2(t *testing.T) {
 
 	t.Log("Opening connection...")
 	sw.Open()
-	<-sw.Started()
+	sw.WaitStarted()
 
 	recv := make(chan string, 1)
 	sw.Subscribe(func(evt web_socket.MessageEvent) {
@@ -358,7 +358,7 @@ func Test_ResumeWithPingHandlerV2(t *testing.T) {
 	t.Log("PHASE 2: resuming")
 	sw.Reconnect()
 	sw.Resume()
-	<-sw.Started()
+	sw.WaitStarted()
 	t.Log("PHASE 2: resumed")
 
 	t.Log("PHASE 2: sending 'second'")
@@ -443,7 +443,7 @@ func Test_ResumeWithPingHandlerV3(t *testing.T) {
 
 	t.Log("Opening connection...")
 	sw.Open()
-	<-sw.Started()
+	sw.WaitStarted()
 
 	recv := make(chan string, 1)
 	sw.Subscribe(func(evt web_socket.MessageEvent) {
@@ -473,7 +473,7 @@ func Test_ResumeWithPingHandlerV3(t *testing.T) {
 	t.Log("PHASE 2: resuming")
 	sw.Reconnect()
 	sw.Resume()
-	<-sw.Started()
+	sw.WaitStarted()
 	t.Log("PHASE 2: resumed")
 
 	t.Log("PHASE 2: sending 'second'")

@@ -38,6 +38,10 @@ func (s *DefaultStrategy) OnReadError(err error) bool {
 	return false
 }
 
+func (s *DefaultStrategy) ShouldExitReadLoop() bool {
+	return s.shutdownRequested.Load()
+}
+
 func (s *DefaultStrategy) OnCloseFrame() {
 	s.RequestShutdown()
 }

@@ -82,10 +82,10 @@ type WebSocketCommonInterface interface {
 	GetControl() WebApiControlWriter
 	GetReader() WebApiReader
 	GetWriter() WebApiWriter
-	Started() <-chan struct{}
+	// Started() <-chan struct{}
 	IsStarted() bool
 	WaitStarted() bool
-	Stopped() <-chan struct{}
+	// Stopped() <-chan struct{}
 	IsStopped() bool
 	WaitStopped() bool
 	Resume()
@@ -248,17 +248,17 @@ func (w *webSocketWrapper) emit(evt MessageEvent) {
 	}
 }
 
-func (w *webSocketWrapper) Started() <-chan struct{} {
-	return w.started
-}
+// func (w *webSocketWrapper) Started() <-chan struct{} {
+// 	return w.started
+// }
 
 func (w *webSocketWrapper) IsStarted() bool {
 	return w.loopsAreRunning.Load()
 }
 
-func (w *webSocketWrapper) Stopped() <-chan struct{} {
-	return w.stopped
-}
+// func (w *webSocketWrapper) Stopped() <-chan struct{} {
+// 	return w.stopped
+// }
 
 func (w *webSocketWrapper) IsStopped() bool {
 	return !w.loopsAreRunning.Load()
@@ -316,29 +316,29 @@ func isFatalError(err error) bool {
 	return false
 }
 
-func (w *webSocketWrapper) checkStarted() {
-	if !w.loopsAreRunning.Load() {
-		if w.readIsWorked.Load() && w.writeIsWorked.Load() {
-			w.loopsAreRunning.Store(true)
-			select {
-			case w.started <- struct{}{}:
-			default:
-			}
-		}
-	}
-}
+// func (w *webSocketWrapper) checkStarted() {
+// 	if !w.loopsAreRunning.Load() {
+// 		if w.readIsWorked.Load() && w.writeIsWorked.Load() {
+// 			w.loopsAreRunning.Store(true)
+// 			select {
+// 			case w.started <- struct{}{}:
+// 			default:
+// 			}
+// 		}
+// 	}
+// }
 
-func (w *webSocketWrapper) checkStopped() {
-	if w.loopsAreRunning.Load() {
-		if !w.writeIsWorked.Load() && w.loopsAreRunning.Load() {
-			w.loopsAreRunning.Store(false)
-			select {
-			case w.stopped <- struct{}{}:
-			default:
-			}
-		}
-	}
-}
+// func (w *webSocketWrapper) checkStopped() {
+// 	if w.loopsAreRunning.Load() {
+// 		if !w.writeIsWorked.Load() && w.loopsAreRunning.Load() {
+// 			w.loopsAreRunning.Store(false)
+// 			select {
+// 			case w.stopped <- struct{}{}:
+// 			default:
+// 			}
+// 		}
+// 	}
+// }
 
 func (w *webSocketWrapper) readLoop() {
 	defer func() {
@@ -353,14 +353,23 @@ func (w *webSocketWrapper) readLoop() {
 	}()
 
 	for {
+		strategy.MarkCycleStarted(
+			"read",
+			&w.readIsWorked,
+			&w.writeIsWorked,
+			&w.loopsAreRunning,
+			w.strategy,
+			w.started)
+
 		select {
 		case <-w.ctx.Done():
 			return
 		default:
 		}
 
-		strategy.MarkCycleStarted("read", &w.readIsWorked, &w.writeIsWorked, &w.loopsAreRunning, w.strategy, w.started)
-
+		if w.strategy.ShouldExitReadLoop() {
+			return
+		}
 		w.readMu.Lock()
 		typ, msg, err := w.conn.ReadMessage()
 		w.readMu.Unlock()
@@ -397,6 +406,9 @@ func (w *webSocketWrapper) readLoop() {
 
 		// Еміт події
 		w.emit(MessageEvent{Kind: kind, Body: msg})
+
+		// 💡 коротка пауза або continue — запобігання spin loop
+		time.Sleep(100 * time.Millisecond)
 	}
 }
 
@@ -419,10 +431,14 @@ func (w *webSocketWrapper) writeLoop() {
 
 		select {
 		case <-w.ctx.Done():
+			return
+
+		case evt := <-w.sendChan:
+			// 💡 Щойно щось прийшло — одразу перевірка shutdown
 			if w.strategy.ShouldExitWriteLoop(len(w.sendChan) == 0, w.strategy.IsShutdownRequested()) {
 				return
 			}
-		case evt := <-w.sendChan:
+
 			w.writeMu.Lock()
 			err := w.conn.WriteMessage(websocket.TextMessage, evt.Body)
 			w.writeMu.Unlock()
@@ -430,13 +446,21 @@ func (w *webSocketWrapper) writeLoop() {
 			if w.logger != nil {
 				w.logger(LogRecord{Op: OpSend, Body: evt.Body, Err: err})
 			}
-
 			if evt.Callback != nil {
 				evt.Callback(err)
 			}
 			if evt.ErrChan != nil {
 				evt.ErrChan <- err
 			}
+
+		default:
+			// 💡 Порожня черга — перевірити, чи пора виходити
+			if w.strategy.ShouldExitWriteLoop(true, w.strategy.IsShutdownRequested()) {
+				return
+			}
+
+			// 💡 коротка пауза або continue — запобігання spin loop
+			time.Sleep(100 * time.Millisecond)
 		}
 	}
 }
@@ -456,10 +480,16 @@ func (w *webSocketWrapper) Resume() {
 }
 
 func (w *webSocketWrapper) WaitStarted() bool {
+	if w.IsStarted() {
+		return true
+	}
 	return w.strategy.WaitForStart(w.started, w.getTimeout())
 }
 
 func (w *webSocketWrapper) WaitStopped() bool {
+	if w.IsStopped() {
+		return true
+	}
 	return w.strategy.WaitForStop(w.stopped, w.getTimeout())
 }
 
@@ -487,16 +517,19 @@ func (w *webSocketWrapper) Halt() bool {
 	w.started = make(chan struct{}, 1)
 	w.stopped = make(chan struct{}, 1)
 
-	// Пробуємо мʼяко: без скасування контексту, з таймаутами на I/O
-	w.SetReadTimeout(w.getTimeout() / 2)
-	w.SetWriteTimeout(w.getTimeout() / 2)
+	// Пробуємо мʼяко: без скасування контексту, без таймауту
 
-	if !w.strategy.WaitForStop(w.stopped, w.getTimeout()/2) {
-		// Примусове завершення: скасовуємо контекст
-		if w.cancel != nil {
-			w.cancel()
-		}
+	if !w.strategy.WaitForStop(w.stopped, w.getTimeout()) {
+		w.SetReadTimeout(w.getTimeout() / 5)
+		// w.SetWriteTimeout(w.getTimeout() / 5)
 		ok := w.strategy.WaitForStop(w.stopped, w.getTimeout())
+		// Примусове завершення: скасовуємо контекст
+		if !ok {
+			if w.cancel != nil {
+				w.cancel()
+			}
+			ok = w.strategy.WaitForStop(w.stopped, w.getTimeout())
+		}
 		// Відновлення поведінки по замовчуванню
 		w.SetReadTimeout(0)
 		w.SetWriteTimeout(0)

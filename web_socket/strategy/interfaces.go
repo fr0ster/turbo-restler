@@ -7,6 +7,7 @@ import (
 // --- Sub-strategy interfaces ---
 type ReadStrategy interface {
 	OnReadError(err error) (fatal bool)
+	ShouldExitReadLoop() bool
 	OnCloseFrame()
 }
 

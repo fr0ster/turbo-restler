@@ -15,6 +15,7 @@ import (
 )
 
 func TestServerWrapper_BasicSendReceive(t *testing.T) {
+	t.Parallel()
 	upgrader := websocket.Upgrader{}
 	serverDone := make(chan struct{})
 
@@ -28,7 +29,7 @@ func TestServerWrapper_BasicSendReceive(t *testing.T) {
 		wrapper.SetTimeout(5 * time.Second)
 
 		wrapper.Open()
-		<-wrapper.Started()
+		wrapper.WaitStarted()
 
 		wrapper.Subscribe(func(evt ws.MessageEvent) {
 			if evt.Kind == ws.KindData {
@@ -65,6 +66,7 @@ func TestServerWrapper_BasicSendReceive(t *testing.T) {
 }
 
 func TestServerWrapper_EmitError(t *testing.T) {
+	t.Parallel()
 	upgrader := websocket.Upgrader{}
 	done := make(chan struct{})
 
@@ -75,14 +77,14 @@ func TestServerWrapper_EmitError(t *testing.T) {
 		wrapper := ws.WrapServerConn(conn)
 		wrapper.SetTimeout(5 * time.Second)
 		wrapper.Open()
-		<-wrapper.Started()
+		wrapper.WaitStarted()
 
 		wrapper.Subscribe(func(evt ws.MessageEvent) {
 			if evt.Kind == ws.KindFatalError || evt.Kind == ws.KindError {
 				gotError = evt.Error
 			}
 		})
-		<-wrapper.Stopped()
+		wrapper.WaitStopped()
 		close(done)
 	}))
 	defer srv.Close()
@@ -101,6 +103,7 @@ func TestServerWrapper_EmitError(t *testing.T) {
 }
 
 func TestServerWrapper_ConcurrentMessages(t *testing.T) {
+	t.Parallel()
 	upgrader := websocket.Upgrader{}
 	done := make(chan struct{})
 
@@ -121,7 +124,7 @@ func TestServerWrapper_ConcurrentMessages(t *testing.T) {
 		})
 
 		wrapper.Open()
-		<-wrapper.Stopped()
+		wrapper.WaitStopped()
 		close(done)
 	}))
 	defer srv.Close()
