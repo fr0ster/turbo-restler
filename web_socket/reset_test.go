@@ -20,17 +20,52 @@ func TestWebSocketWrapper_SubscribeLifecycle(t *testing.T) {
 	u, cleanup := StartWebSocketTestServerV2(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, _ := (&websocket.Upgrader{}).Upgrade(w, r, nil)
 		done := r.Context().Done()
+		conn.SetPongHandler(func(string) error {
+			logrus.Info("Server: pong received")
+			return nil
+		})
+		timer := time.NewTicker(50 * time.Millisecond)
+		go func() {
+			select {
+			case <-done:
+				logrus.Info("Server: done in ping sender")
+				return
+			case <-timer.C:
+				logrus.Info("Server: sending ping")
+				_ = conn.WriteControl(websocket.PingMessage, []byte("ping"), time.Now().Add(time.Second))
+			}
+		}()
+		echoer := make(chan []byte, 1)
+		go func() {
+			for {
+				select {
+				case <-done:
+					logrus.Info("Server: done in read loop")
+					return
+				default:
+					_, msg, err := conn.ReadMessage()
+					if err != nil {
+						logrus.Errorf("Server: read error: %v", err)
+						return
+					}
+					fmt.Printf("Server: echoing: %s\n", string(msg))
+					echoer <- msg
+				}
+			}
+		}()
 		for {
 			select {
 			case <-done:
 				return
-			default:
-				type_, msg, err := conn.ReadMessage()
-				if err != nil {
-					logrus.Errorf("ReadMessage error: %v", err)
-				}
-				// type_ := websocket.TextMessage
-				// msg := []byte("echo")
+			// default:
+			// type_, msg, err := conn.ReadMessage()
+			// if err != nil {
+			// 	logrus.Errorf("Server: ReadMessage error: %v", err)
+			// }
+			// type_ := websocket.TextMessage
+			// msg := []byte("echo")
+			case msg := <-echoer:
+				type_ := websocket.TextMessage
 				time.Sleep(50 * time.Millisecond)
 				_ = conn.WriteMessage(type_, msg)
 			}

@@ -737,9 +737,9 @@ func TestReconnect(t *testing.T) {
 	sw.SetTimeout(100 * time.Millisecond)
 	sw.SetMessageLogger(func(evt web_socket.LogRecord) {
 		if evt.Err != nil {
-			// fmt.Println(">>> ERROR:", evt.Err)
+			fmt.Println(">>> LOG: ERROR:", evt.Err)
 		} else {
-			fmt.Println(">>> MESSAGE:", string(evt.Body))
+			fmt.Println(">>> LOG: MESSAGE:", string(evt.Body))
 		}
 	})
 	sw.Open()

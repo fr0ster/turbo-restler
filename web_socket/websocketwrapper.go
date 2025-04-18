@@ -10,8 +10,6 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-
-	strategy "github.com/fr0ster/turbo-restler/web_socket/strategy"
 )
 
 type LogOp string
@@ -135,8 +133,6 @@ type webSocketWrapper struct {
 	onStopped    func()
 	onConnected  func()
 	onDisconnect func()
-
-	strategy strategy.WrapperStrategy
 }
 
 func NewWebSocketWrapper(d *websocket.Dialer, url string) (WebSocketClientInterface, error) {
@@ -144,7 +140,6 @@ func NewWebSocketWrapper(d *websocket.Dialer, url string) (WebSocketClientInterf
 	if err != nil {
 		return nil, errors.New("failed to connect to WebSocket: " + err.Error())
 	}
-	strategy := strategy.NewDefaultStrategy()
 	return &webSocketWrapper{
 		conn:      conn,
 		dialer:    d,
@@ -155,14 +150,12 @@ func NewWebSocketWrapper(d *websocket.Dialer, url string) (WebSocketClientInterf
 		subs:      make(map[int]func(MessageEvent)),
 		timeoutMu: sync.RWMutex{},
 		timeout:   1000 * time.Millisecond,
-		strategy:  strategy,
 	}, nil
 }
 
 func WrapServerConn(conn *websocket.Conn) WebSocketServerInterface {
 	is_server := &atomic.Bool{}
 	is_server.Store(true)
-	strategy := strategy.NewDefaultStrategy()
 	return &webSocketWrapper{
 		conn:      conn,
 		isServer:  *is_server,
@@ -172,7 +165,6 @@ func WrapServerConn(conn *websocket.Conn) WebSocketServerInterface {
 		subs:      make(map[int]func(MessageEvent)),
 		timeoutMu: sync.RWMutex{},
 		timeout:   1000 * time.Millisecond,
-		strategy:  strategy,
 	}
 }
 
