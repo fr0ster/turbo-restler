@@ -108,7 +108,9 @@ func TestServerWrapper_ConcurrentMessages(t *testing.T) {
 	upgrader := websocket.Upgrader{}
 	var srvWg sync.WaitGroup // для чекання всіх серверних врапперів
 
-	received := make(chan string, 20) // буферізований, щоб уникнути блокування
+	received := make(chan string, 10) // рівно стільки, скільки очікуємо
+	var wg sync.WaitGroup
+	wg.Add(10) // чекаємо 10 повідомлень
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := upgrader.Upgrade(w, r, nil)
@@ -120,6 +122,7 @@ func TestServerWrapper_ConcurrentMessages(t *testing.T) {
 		wrapper.Subscribe(func(evt ws.MessageEvent) {
 			if evt.Kind == ws.KindData {
 				received <- string(evt.Body)
+				wg.Done()
 			}
 		})
 
@@ -143,7 +146,7 @@ func TestServerWrapper_ConcurrentMessages(t *testing.T) {
 			require.NoError(t, err)
 			defer client.Close()
 
-			// Створимо повідомлення типу "msg-A", "msg-B", ...
+			// Повідомлення типу "msg-A", "msg-B", ...
 			msg := fmt.Sprintf("msg-%c", 'A'+n)
 			err = client.WriteMessage(websocket.TextMessage, []byte(msg))
 			require.NoError(t, err)
@@ -151,13 +154,13 @@ func TestServerWrapper_ConcurrentMessages(t *testing.T) {
 	}
 
 	clientWg.Wait() // Дочекатися завершення всіх клієнтів
+	wg.Wait()       // Дочекатися надходження всіх повідомлень
 	srvWg.Wait()    // Дочекатися завершення всіх серверних врапперів
-	close(received)
 
-	// Збираємо всі отримані повідомлення
+	// Читаємо рівно 10 повідомлень
 	var msgs []string
-	for msg := range received {
-		msgs = append(msgs, msg)
+	for i := 0; i < 10; i++ {
+		msgs = append(msgs, <-received)
 	}
 
 	assert.Len(t, msgs, 10)
