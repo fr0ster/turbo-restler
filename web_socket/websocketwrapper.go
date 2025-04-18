@@ -352,7 +352,7 @@ func (w *webSocketWrapper) readLoop() {
 			return
 		}
 		w.readMu.Lock()
-		w.SetReadTimeout(w.getTimeout() / 2)
+		// w.SetReadTimeout(w.getTimeout() / 2)
 		typ, msg, err := w.conn.ReadMessage()
 		w.readMu.Unlock()
 
@@ -422,7 +422,7 @@ func (w *webSocketWrapper) writeLoop() {
 			}
 
 			w.writeMu.Lock()
-			w.SetReadTimeout(w.getTimeout() / 2)
+			// w.SetReadTimeout(w.getTimeout() / 2)
 			err := w.conn.WriteMessage(websocket.TextMessage, evt.Body)
 			w.writeMu.Unlock()
 
@@ -496,7 +496,7 @@ func (w *webSocketWrapper) Halt() bool {
 	w.stopped = make(chan struct{}, 1)
 	f := func(timeOut time.Duration) bool {
 		if timeOut != 0 {
-			w.SetReadTimeout(timeOut / 2)
+			// w.SetReadTimeout(timeOut / 2)
 			// w.SetWriteTimeout(timeOut / 2)
 		} else {
 			// Stop the read loop
