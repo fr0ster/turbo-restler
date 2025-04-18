@@ -139,6 +139,7 @@ func TestServerWrapper_ConcurrentMessages(t *testing.T) {
 				wg.Done()
 				client.Close()
 			}()
+			// time.Sleep(1000 * time.Millisecond) // Give the server time to start
 			client.WriteMessage(websocket.TextMessage, []byte("msg-"+string(rune('A'+n))))
 		}(i)
 	}

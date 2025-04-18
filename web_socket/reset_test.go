@@ -16,6 +16,7 @@ import (
 )
 
 func TestWebSocketWrapper_SubscribeLifecycle(t *testing.T) {
+	t.Parallel()
 	u, cleanup := StartWebSocketTestServerV2(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, _ := (&websocket.Upgrader{}).Upgrade(w, r, nil)
 		done := r.Context().Done()
@@ -107,6 +108,7 @@ func newLocalListener() (ln *net.TCPListener, err error) {
 }
 
 func Test_ResumeWithPingHandler(t *testing.T) {
+	t.Parallel()
 	u, cleanup := StartWebSocketTestServerV2(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, _ := (&websocket.Upgrader{}).Upgrade(w, r, nil)
 		defer conn.Close()
@@ -202,6 +204,7 @@ func Test_ResumeWithPingHandler(t *testing.T) {
 }
 
 func TestLoopsV2(t *testing.T) {
+	t.Parallel()
 	u, cleanup := StartWebSocketTestServerV2(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
 		if err != nil {
@@ -266,6 +269,7 @@ func TestLoopsV2(t *testing.T) {
 }
 
 func Test_ResumeWithPingHandlerV2(t *testing.T) {
+	t.Parallel()
 	t.Log("=== START TEST ===")
 	u, cleanup := StartWebSocketTestServerV2(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, _ := (&websocket.Upgrader{}).Upgrade(w, r, nil)
@@ -378,6 +382,7 @@ func Test_ResumeWithPingHandlerV2(t *testing.T) {
 }
 
 func Test_ResumeWithPingHandlerV3(t *testing.T) {
+	t.Parallel()
 	t.Log("=== START TEST ===")
 
 	u, cleanup := StartWebSocketTestServerV2(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

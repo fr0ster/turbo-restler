@@ -40,6 +40,7 @@ func echoHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func TestWebSocketInterface_BasicSendReceive(t *testing.T) {
+	t.Parallel()
 	ws := newTestWS(t)
 	defer func() {
 		ws.Close()
@@ -71,6 +72,7 @@ func TestWebSocketInterface_BasicSendReceive(t *testing.T) {
 }
 
 func TestWebSocketInterface_Unsubscribe(t *testing.T) {
+	t.Parallel()
 	ws := newTestWS(t)
 	defer func() {
 		ws.Close()
@@ -94,6 +96,7 @@ func TestWebSocketInterface_Unsubscribe(t *testing.T) {
 }
 
 // func TestWebSocketInterface_HandlersAndDone(t *testing.T) {
+// t.Parallel()
 // 	ws := newTestWS(t)
 // 	// defer func() {
 // 	// 	ws.Close()
@@ -157,6 +160,7 @@ func TestWebSocketInterface_Unsubscribe(t *testing.T) {
 // }
 
 func TestWebSocketInterface_Logger(t *testing.T) {
+	t.Parallel()
 	ws := newTestWS(t)
 	defer func() {
 		ws.Close()
@@ -183,6 +187,7 @@ func TestWebSocketInterface_Logger(t *testing.T) {
 }
 
 // func TestWebSocketInterface_Reopen(t *testing.T) {
+// t.Parallel()
 // 	ws := newTestWS(t)
 
 // 	recv := make(chan string, 1)
