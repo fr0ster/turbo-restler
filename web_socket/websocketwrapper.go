@@ -93,6 +93,7 @@ type WebSocketCommonInterface interface {
 	SetStoppedHandler(f func())
 	SetConnectedHandler(f func())
 	SetDisconnectHandler(f func())
+	SetCloseHandler(f func(code int, text string) error)
 	SetRemoteCloseHandler(fn func(code int, reason string) error)
 }
 
@@ -320,30 +321,6 @@ func isFatalError(err error) bool {
 	return false
 }
 
-// func (w *webSocketWrapper) checkStarted() {
-// 	if !w.loopsAreRunning.Load() {
-// 		if w.readIsWorked.Load() && w.writeIsWorked.Load() {
-// 			w.loopsAreRunning.Store(true)
-// 			select {
-// 			case w.started <- struct{}{}:
-// 			default:
-// 			}
-// 		}
-// 	}
-// }
-
-// func (w *webSocketWrapper) checkStopped() {
-// 	if w.loopsAreRunning.Load() {
-// 		if !w.writeIsWorked.Load() && w.loopsAreRunning.Load() {
-// 			w.loopsAreRunning.Store(false)
-// 			select {
-// 			case w.stopped <- struct{}{}:
-// 			default:
-// 			}
-// 		}
-// 	}
-// }
-
 func (w *webSocketWrapper) readLoop() {
 	defer func() {
 		w.readIsWorked.Store(false)
@@ -515,45 +492,36 @@ func (w *webSocketWrapper) Halt() bool {
 	if !w.readIsWorked.Load() && !w.writeIsWorked.Load() {
 		return true
 	}
-
-	// Сигналізуємо стратегії про необхідність завершення
-	w.strategy.RequestShutdown()
-
-	// Скидаємо канали, щоб мати актуальне очікування
 	w.started = make(chan struct{}, 1)
 	w.stopped = make(chan struct{}, 1)
-
-	// Пробуємо мʼяко: без скасування контексту, без таймауту
-
-	if !w.strategy.WaitForStop(w.stopped, w.getTimeout()) {
-		// w.SetReadTimeout(w.getTimeout() / 5)
-		// w.SetWriteTimeout(w.getTimeout() / 5)
-		ok := w.strategy.WaitForStop(w.stopped, w.getTimeout())
-		// Примусове завершення: скасовуємо контекст
-		if !ok {
+	f := func(timeOut time.Duration) bool {
+		if timeOut != 0 {
+			w.SetReadTimeout(timeOut / 2)
+			// w.SetWriteTimeout(timeOut / 2)
+		} else {
+			// Stop the read loop
 			if w.cancel != nil {
 				w.cancel()
 			}
-			ok = w.strategy.WaitForStop(w.stopped, w.getTimeout())
 		}
-		// Відновлення поведінки по замовчуванню
+		ok := w.WaitStopped()
 		w.SetReadTimeout(0)
 		w.SetWriteTimeout(0)
 		return ok
 	}
-
-	// Відновлення I/O
-	w.SetReadTimeout(0)
-	w.SetWriteTimeout(0)
-	return true
+	if !f(0) {
+		return f(w.getTimeout())
+	} else {
+		return true
+	}
 }
 
 func (w *webSocketWrapper) Close() error {
-	// // 💡 Ініціюємо зупинку, чекаємо з тайм-аутом
-	// ok := w.Halt()
-	// if !ok {
-	// 	return errors.New("timeout waiting for loops to finish")
-	// }
+	// 💡 Ініціюємо зупинку, чекаємо з тайм-аутом
+	ok := w.Halt()
+	if !ok {
+		return errors.New("timeout waiting for loops to finish")
+	}
 
 	// ✅ Пишемо CloseMessage (вихід ініційований клієнтом)
 	_ = w.conn.WriteMessage(
@@ -562,7 +530,7 @@ func (w *webSocketWrapper) Close() error {
 	)
 
 	// 🕒 Даємо серверу шанс відповісти (не читаємо відповідь, просто чекаємо)
-	time.Sleep(w.getTimeout())
+	time.Sleep(w.getTimeout() * 2)
 
 	// 🔔 Сповіщаємо про розрив
 	if w.onDisconnect != nil {
@@ -634,6 +602,10 @@ func (w *webSocketWrapper) SetConnectedHandler(f func()) {
 
 func (w *webSocketWrapper) SetDisconnectHandler(f func()) {
 	w.onDisconnect = f
+}
+
+func (w *webSocketWrapper) SetCloseHandler(f func(code int, text string) error) {
+	w.conn.SetCloseHandler(f)
 }
 
 func (w *webSocketWrapper) SetRemoteCloseHandler(fn func(code int, reason string) error) {

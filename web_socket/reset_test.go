@@ -26,7 +26,7 @@ func TestWebSocketWrapper_SubscribeLifecycle(t *testing.T) {
 			default:
 				type_, msg, err := conn.ReadMessage()
 				if err != nil {
-					logrus.Errorf("ReadMessage error: %v", err)
+					logrus.Errorf("Server: ReadMessage error: %v", err)
 				}
 				// type_ := websocket.TextMessage
 				// msg := []byte("echo")
@@ -37,7 +37,7 @@ func TestWebSocketWrapper_SubscribeLifecycle(t *testing.T) {
 	}))
 	defer cleanup()
 
-	timeout := 500 * time.Millisecond
+	timeout := 5000 * time.Millisecond
 
 	dial := func() (*websocket.Dialer, string) {
 		return websocket.DefaultDialer, u

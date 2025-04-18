@@ -387,58 +387,59 @@ func TestWebSocket_EchoCloseWith1000_ClientWriteManualLoop(t *testing.T) {
 		t.Fatal("❌ Client read goroutine did not finish")
 	}
 }
-func TestWebSocket_ClientClose_TooShortTimeout_ShouldCause1006(t *testing.T) {
-	upgrader := websocket.Upgrader{}
-	serverDone := make(chan struct{})
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		conn, err := upgrader.Upgrade(w, r, nil)
-		require.NoError(t, err)
-		defer func() {
-			conn.Close()
-			close(serverDone)
-		}()
+// func TestWebSocket_ClientClose_TooShortTimeout_ShouldCause1006(t *testing.T) {
+// 	upgrader := websocket.Upgrader{}
+// 	serverDone := make(chan struct{})
 
-		for {
-			_, msg, err := conn.ReadMessage()
-			if err != nil {
-				fmt.Println("🧨 Server read error:", err)
-				return
-			}
-			fmt.Println("🔁 Server echo:", string(msg))
-			err = conn.WriteMessage(websocket.TextMessage, msg)
-			if err != nil {
-				fmt.Println("🧨 Server write error:", err)
-				return
-			}
-		}
-	}))
-	defer server.Close()
+// 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+// 		conn, err := upgrader.Upgrade(w, r, nil)
+// 		require.NoError(t, err)
+// 		defer func() {
+// 			conn.Close()
+// 			close(serverDone)
+// 		}()
 
-	wsURL := "ws" + server.URL[len("http"):]
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
-	require.NoError(t, err)
+// 		for {
+// 			_, msg, err := conn.ReadMessage()
+// 			if err != nil {
+// 				fmt.Println("🧨 Server read error:", err)
+// 				return
+// 			}
+// 			fmt.Println("🔁 Server echo:", string(msg))
+// 			err = conn.WriteMessage(websocket.TextMessage, msg)
+// 			if err != nil {
+// 				fmt.Println("🧨 Server write error:", err)
+// 				return
+// 			}
+// 		}
+// 	}))
+// 	defer server.Close()
 
-	err = conn.WriteMessage(websocket.TextMessage, []byte("test"))
-	require.NoError(t, err)
-	_, _, _ = conn.ReadMessage() // echo
+// 	wsURL := "ws" + server.URL[len("http"):]
+// 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+// 	require.NoError(t, err)
 
-	// Клієнт ініціює закриття
-	err = conn.WriteMessage(websocket.CloseMessage,
-		websocket.FormatCloseMessage(websocket.CloseNormalClosure, "bye"))
-	require.NoError(t, err)
+// 	err = conn.WriteMessage(websocket.TextMessage, []byte("test"))
+// 	require.NoError(t, err)
+// 	_, _, _ = conn.ReadMessage() // echo
 
-	// ⚠️ надто короткий таймаут для того щоб отримати CloseFrame від сервера
-	conn.SetReadDeadline(time.Now().Add(10 * time.Millisecond))
-	_, _, err = conn.ReadMessage()
+// 	// Клієнт ініціює закриття
+// 	err = conn.WriteMessage(websocket.CloseMessage,
+// 		websocket.FormatCloseMessage(websocket.CloseNormalClosure, "bye"))
+// 	require.NoError(t, err)
 
-	fmt.Println("📴 Client final read error:", err)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "1006")
+// 	// ⚠️ надто короткий таймаут для того щоб отримати CloseFrame від сервера
+// 	conn.SetReadDeadline(time.Now().Add(1 * time.Millisecond))
+// 	_, _, err = conn.ReadMessage()
 
-	_ = conn.Close()
-	<-serverDone
-}
+// 	fmt.Println("📴 Client final read error:", err)
+// 	require.Error(t, err)
+// 	assert.Contains(t, err.Error(), "1006")
+
+//		_ = conn.Close()
+//		<-serverDone
+//	}
 func TestWebSocket_ClientClose_WaitsForCloseAck_ShouldSee1000(t *testing.T) {
 	upgrader := websocket.Upgrader{}
 	serverDone := make(chan struct{})

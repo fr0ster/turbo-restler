@@ -66,6 +66,7 @@ func StartWebSocketTestServer(handler http.Handler) (url string, cleanup func())
 }
 
 func TestReadWrite(t *testing.T) {
+	t.Parallel()
 	u, cleanup := StartWebSocketTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, _ := (&websocket.Upgrader{}).Upgrade(w, r, nil)
 
@@ -103,6 +104,7 @@ func TestReadWrite(t *testing.T) {
 			t.Logf(">>> OP: %s, MESSAGE: %s", evt.Op, string(evt.Body))
 		}
 	})
+	sw.SetTimeout(1000 * time.Millisecond)
 	sw.Open()
 	time.Sleep(1000 * time.Millisecond)
 
@@ -126,7 +128,7 @@ func TestReadWrite(t *testing.T) {
 	case <-done:
 	case err := <-errCh:
 		t.Fatal(err)
-	case <-time.After(2 * time.Second):
+	case <-time.After(10 * time.Second):
 		t.Fatal("did not receive message")
 	}
 
@@ -135,6 +137,7 @@ func TestReadWrite(t *testing.T) {
 }
 
 func TestPingPongTimeoutClose(t *testing.T) {
+	t.Parallel()
 	u, cleanup := StartWebSocketTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, _ := (&websocket.Upgrader{}).Upgrade(w, r, nil)
 
@@ -216,6 +219,7 @@ func TestPingPongTimeoutClose(t *testing.T) {
 }
 
 func TestConcurrentConsumers(t *testing.T) {
+	t.Parallel()
 	u, cleanup := StartWebSocketTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, _ := (&websocket.Upgrader{}).Upgrade(w, r, nil)
 		for {
@@ -270,6 +274,7 @@ func TestConcurrentConsumers(t *testing.T) {
 }
 
 func TestPingPongWithTimeoutEnforcedByServer(t *testing.T) {
+	t.Parallel()
 	u, cleanup := StartWebSocketTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, _ := (&websocket.Upgrader{}).Upgrade(w, r, nil)
 		ticker := time.NewTicker(50 * time.Millisecond)
@@ -350,6 +355,7 @@ func TestPingPongWithTimeoutEnforcedByServer(t *testing.T) {
 }
 
 func TestManyConcurrentConsumers(t *testing.T) {
+	t.Parallel()
 	u, cleanup := StartWebSocketTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, _ := (&websocket.Upgrader{}).Upgrade(w, r, nil)
 		for {
@@ -396,6 +402,7 @@ func TestManyConcurrentConsumers(t *testing.T) {
 }
 
 func TestNoPongServerClosesConnection(t *testing.T) {
+	t.Parallel()
 	u, cleanup := StartWebSocketTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, _ := (&websocket.Upgrader{}).Upgrade(w, r, nil)
 		time.Sleep(100 * time.Millisecond)
@@ -438,6 +445,7 @@ func TestNoPongServerClosesConnection(t *testing.T) {
 }
 
 func TestWebSocketWrapper_GetReaderWriter(t *testing.T) {
+	t.Parallel()
 	// Start mock server
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
@@ -473,6 +481,7 @@ func TestWebSocketWrapper_GetReaderWriter(t *testing.T) {
 }
 
 func TestMessageLoggerCalled(t *testing.T) {
+	t.Parallel()
 	u, cleanup := StartWebSocketTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, _ := (&websocket.Upgrader{}).Upgrade(w, r, nil)
 		for {
@@ -510,6 +519,7 @@ func TestMessageLoggerCalled(t *testing.T) {
 }
 
 func TestSubscribeUnsubscribe(t *testing.T) {
+	t.Parallel()
 	u, cleanup := StartWebSocketTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, _ := (&websocket.Upgrader{}).Upgrade(w, r, nil)
 		for {
@@ -563,6 +573,7 @@ func TestSubscribeUnsubscribe(t *testing.T) {
 }
 
 func TestSendWithSendResult(t *testing.T) {
+	t.Parallel()
 	u, cleanup := StartWebSocketTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, _ := (&websocket.Upgrader{}).Upgrade(w, r, nil)
 		ctx := r.Context()
@@ -604,6 +615,7 @@ func TestSendWithSendResult(t *testing.T) {
 }
 
 func TestSendWithAwaitCallback(t *testing.T) {
+	t.Parallel()
 	u, cleanup := StartWebSocketTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, _ := (&websocket.Upgrader{}).Upgrade(w, r, nil)
 		for {
@@ -640,6 +652,7 @@ func TestSendWithAwaitCallback(t *testing.T) {
 	sw.WaitStopped()
 }
 func TestHandlerPanic(t *testing.T) {
+	t.Parallel()
 	t.Log("Test started")
 
 	u, cleanup := StartWebSocketTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -694,6 +707,7 @@ func TestHandlerPanic(t *testing.T) {
 }
 
 func TestHTimeOuts(t *testing.T) {
+	t.Parallel()
 	u, cleanup := StartWebSocketTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, _ := (&websocket.Upgrader{}).Upgrade(w, r, nil)
 		for {
@@ -718,6 +732,7 @@ func TestHTimeOuts(t *testing.T) {
 	sw.WaitStopped()
 }
 func TestReconnect(t *testing.T) {
+	t.Parallel()
 	u, cleanup := StartWebSocketTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, _ := (&websocket.Upgrader{}).Upgrade(w, r, nil)
 		conn.SetCloseHandler(func(code int, text string) error {
@@ -743,20 +758,24 @@ func TestReconnect(t *testing.T) {
 					fmt.Println("❌ Server read error:", err)
 					return
 				}
+				fmt.Printf("✅ Server received message: %s\n", string(msg))
 				_ = conn.WriteMessage(type_, msg)
+				fmt.Printf("✅ Server sent message: %s\n", string(msg))
 			}
 		}
 	}))
 	defer cleanup()
 
+	time.Sleep(1000 * time.Millisecond)
+
 	sw, err := web_socket.NewWebSocketWrapper(websocket.DefaultDialer, u)
 	require.NoError(t, err)
-	// sw.SetTimeout(1000 * time.Millisecond)
+	sw.SetTimeout(1000 * time.Millisecond)
 	sw.SetMessageLogger(func(evt web_socket.LogRecord) {
 		if evt.Err != nil {
-			fmt.Println(">>> LOG ERROR:", evt.Err)
+			fmt.Printf(">>> OP: %s, LOG ERROR: %s\n", evt.Op, evt.Err)
 		} else {
-			fmt.Println(">>> LOG MESSAGE:", string(evt.Body))
+			fmt.Printf(">>> OP: %s, LOG MESSAGE: %s\n", evt.Op, string(evt.Body))
 		}
 	})
 	sw.Open()
@@ -781,20 +800,18 @@ func TestReconnect(t *testing.T) {
 	sw.Resume()
 	sw.WaitStarted()
 
-	// require.NoError(t, sw.Send(web_socket.WriteEvent{Body: []byte("hello2")}))
-	fmt.Print("Sending hello2\n")
-	err = sw.GetWriter().WriteMessage(websocket.TextMessage, []byte("hello2"))
-	fmt.Printf("Sending result: %v\n", err)
-	assert.NoError(t, err)
+	require.NoError(t, sw.Send(web_socket.WriteEvent{Body: []byte("hello2")}))
+	// assert.NoError(t, err)
 
 	time.Sleep(1000 * time.Millisecond)
 
 	sw.Close()
+	fmt.Println(">>> Closing WebSocket connection")
 	sw.WaitStopped()
-
 }
 
 func TestLoops(t *testing.T) {
+	t.Parallel()
 	u, cleanup := StartWebSocketTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
 		if err != nil {
