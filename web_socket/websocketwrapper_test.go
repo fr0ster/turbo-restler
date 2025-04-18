@@ -720,6 +720,18 @@ func TestHTimeOuts(t *testing.T) {
 func TestReconnect(t *testing.T) {
 	u, cleanup := StartWebSocketTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, _ := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+		conn.SetCloseHandler(func(code int, text string) error {
+			fmt.Printf("🛑 Server received close frame: %d %s\n", code, text)
+			if code == websocket.CloseNormalClosure {
+				fmt.Println("✅ Server sees normal closure")
+				conn.WriteControl(websocket.CloseMessage,
+					websocket.FormatCloseMessage(websocket.CloseNormalClosure, "done"),
+					time.Now().Add(1*time.Second))
+			} else {
+				t.Errorf("❌ Unexpected close code: %d", code)
+			}
+			return nil
+		})
 		done := r.Context().Done()
 		for {
 			select {
@@ -728,6 +740,7 @@ func TestReconnect(t *testing.T) {
 			default:
 				type_, msg, err := conn.ReadMessage()
 				if err != nil {
+					fmt.Println("❌ Server read error:", err)
 					return
 				}
 				_ = conn.WriteMessage(type_, msg)
@@ -741,9 +754,9 @@ func TestReconnect(t *testing.T) {
 	sw.SetTimeout(1000 * time.Millisecond)
 	sw.SetMessageLogger(func(evt web_socket.LogRecord) {
 		if evt.Err != nil {
-			fmt.Println(">>> ERROR:", evt.Err)
+			fmt.Println(">>> LOG ERROR:", evt.Err)
 		} else {
-			fmt.Println(">>> MESSAGE:", string(evt.Body))
+			fmt.Println(">>> LOG MESSAGE:", string(evt.Body))
 		}
 	})
 	sw.Open()

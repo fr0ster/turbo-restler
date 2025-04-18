@@ -543,11 +543,11 @@ func (w *webSocketWrapper) Halt() bool {
 }
 
 func (w *webSocketWrapper) Close() error {
-	// 💡 Ініціюємо зупинку, чекаємо з тайм-аутом
-	ok := w.Halt()
-	if !ok {
-		return errors.New("timeout waiting for loops to finish")
-	}
+	// // 💡 Ініціюємо зупинку, чекаємо з тайм-аутом
+	// ok := w.Halt()
+	// if !ok {
+	// 	return errors.New("timeout waiting for loops to finish")
+	// }
 
 	// ✅ Пишемо CloseMessage (вихід ініційований клієнтом)
 	_ = w.conn.WriteMessage(
