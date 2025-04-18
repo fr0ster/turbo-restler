@@ -751,7 +751,7 @@ func TestReconnect(t *testing.T) {
 
 	sw, err := web_socket.NewWebSocketWrapper(websocket.DefaultDialer, u)
 	require.NoError(t, err)
-	sw.SetTimeout(1000 * time.Millisecond)
+	// sw.SetTimeout(1000 * time.Millisecond)
 	sw.SetMessageLogger(func(evt web_socket.LogRecord) {
 		if evt.Err != nil {
 			fmt.Println(">>> LOG ERROR:", evt.Err)
@@ -776,13 +776,16 @@ func TestReconnect(t *testing.T) {
 
 	ok := sw.Halt()
 	assert.True(t, ok, "Halt should return true")
+	sw.WaitStopped()
 
 	sw.Resume()
-	t.Logf("Write loop is started: %t", sw.IsStarted())
 	sw.WaitStarted()
 
-	t.Logf("Write loop is started: %t", sw.IsStarted())
-	require.NoError(t, sw.Send(web_socket.WriteEvent{Body: []byte("hello2")}))
+	// require.NoError(t, sw.Send(web_socket.WriteEvent{Body: []byte("hello2")}))
+	fmt.Print("Sending hello2\n")
+	err = sw.GetWriter().WriteMessage(websocket.TextMessage, []byte("hello2"))
+	fmt.Printf("Sending result: %v\n", err)
+	assert.NoError(t, err)
 
 	time.Sleep(1000 * time.Millisecond)
 

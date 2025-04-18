@@ -82,6 +82,8 @@ type WebSocketCommonInterface interface {
 	GetControl() WebApiControlWriter
 	GetReader() WebApiReader
 	GetWriter() WebApiWriter
+	IsReadStarted() bool
+	IsWriteStarted() bool
 	IsStarted() bool
 	WaitStarted() bool
 	IsStopped() bool
@@ -246,9 +248,13 @@ func (w *webSocketWrapper) emit(evt MessageEvent) {
 	}
 }
 
-// func (w *webSocketWrapper) Started() <-chan struct{} {
-// 	return w.started
-// }
+func (w *webSocketWrapper) IsReadStarted() bool {
+	return w.readIsWorked.Load()
+}
+
+func (w *webSocketWrapper) IsWriteStarted() bool {
+	return w.writeIsWorked.Load()
+}
 
 func (w *webSocketWrapper) IsStarted() bool {
 	return w.loopsAreRunning.Load()
