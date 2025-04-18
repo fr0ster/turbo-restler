@@ -22,6 +22,10 @@ func TestServerWrapper_BasicSendReceive(t *testing.T) {
 
 	var received []string
 	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	messages := []string{"hello", "world", "test"}
+	wg.Add(len(messages)) // чекаємо кожне повідомлення
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := upgrader.Upgrade(w, r, nil)
@@ -29,28 +33,28 @@ func TestServerWrapper_BasicSendReceive(t *testing.T) {
 		wrapper := ws.WrapServerConn(conn)
 		wrapper.SetTimeout(5 * time.Second)
 
-		wrapper.Open()
-		<-wrapper.Started()
-
 		wrapper.Subscribe(func(evt ws.MessageEvent) {
 			if evt.Kind == ws.KindData {
 				mu.Lock()
 				received = append(received, string(evt.Body))
 				mu.Unlock()
+				wg.Done()
 			}
 		})
+
+		wrapper.Open()
+		<-wrapper.Started()
+		wg.Wait()
 		wrapper.WaitStopped()
 		close(serverDone)
 	}))
 	defer srv.Close()
 
-	// Connect to the server
-	url := "ws" + srv.URL[4:] // convert http://127.0.0.1 -> ws://127.0.0.1
+	url := "ws" + srv.URL[4:] // convert http:// to ws://
 	dialer := websocket.DefaultDialer
 	client, _, err := dialer.Dial(url, nil)
 	require.NoError(t, err)
 
-	messages := []string{"hello", "world", "test"}
 	for _, msg := range messages {
 		err := client.WriteMessage(websocket.TextMessage, []byte(msg))
 		require.NoError(t, err)
@@ -59,6 +63,7 @@ func TestServerWrapper_BasicSendReceive(t *testing.T) {
 	client.WriteMessage(websocket.CloseMessage,
 		websocket.FormatCloseMessage(websocket.CloseNormalClosure, "bye"))
 	client.Close()
+
 	<-serverDone
 
 	mu.Lock()
