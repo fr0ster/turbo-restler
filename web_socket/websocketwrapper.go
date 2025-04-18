@@ -82,10 +82,8 @@ type WebSocketCommonInterface interface {
 	GetControl() WebApiControlWriter
 	GetReader() WebApiReader
 	GetWriter() WebApiWriter
-	// Started() <-chan struct{}
 	IsStarted() bool
 	WaitStarted() bool
-	// Stopped() <-chan struct{}
 	IsStopped() bool
 	WaitStopped() bool
 	Resume()
@@ -371,6 +369,7 @@ func (w *webSocketWrapper) readLoop() {
 			return
 		}
 		w.readMu.Lock()
+		w.SetReadTimeout(w.getTimeout() / 2)
 		typ, msg, err := w.conn.ReadMessage()
 		w.readMu.Unlock()
 
@@ -440,6 +439,7 @@ func (w *webSocketWrapper) writeLoop() {
 			}
 
 			w.writeMu.Lock()
+			w.SetReadTimeout(w.getTimeout() / 2)
 			err := w.conn.WriteMessage(websocket.TextMessage, evt.Body)
 			w.writeMu.Unlock()
 
@@ -520,7 +520,7 @@ func (w *webSocketWrapper) Halt() bool {
 	// Пробуємо мʼяко: без скасування контексту, без таймауту
 
 	if !w.strategy.WaitForStop(w.stopped, w.getTimeout()) {
-		w.SetReadTimeout(w.getTimeout() / 5)
+		// w.SetReadTimeout(w.getTimeout() / 5)
 		// w.SetWriteTimeout(w.getTimeout() / 5)
 		ok := w.strategy.WaitForStop(w.stopped, w.getTimeout())
 		// Примусове завершення: скасовуємо контекст

@@ -776,11 +776,12 @@ func TestReconnect(t *testing.T) {
 
 	ok := sw.Halt()
 	assert.True(t, ok, "Halt should return true")
-	// sw.WaitAllLoops(1 * time.Second)
 
 	sw.Resume()
+	t.Logf("Write loop is started: %t", sw.IsStarted())
 	sw.WaitStarted()
 
+	t.Logf("Write loop is started: %t", sw.IsStarted())
 	require.NoError(t, sw.Send(web_socket.WriteEvent{Body: []byte("hello2")}))
 
 	time.Sleep(1000 * time.Millisecond)
@@ -821,7 +822,7 @@ func TestLoops(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create WebSocketWrapper: %v", err)
 	}
-	ws.SetTimeout(10 * time.Millisecond)
+	ws.SetTimeout(1000 * time.Millisecond)
 
 	ws.Subscribe(func(evt web_socket.MessageEvent) {
 		if evt.Kind == web_socket.KindData {
