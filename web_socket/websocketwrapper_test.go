@@ -252,6 +252,7 @@ func TestConcurrentConsumers(t *testing.T) {
 			if evt.Error == nil && string(evt.Body) == "hello" {
 				wg.Done()
 			}
+			fmt.Printf(">>> CONSUMER %d: %s\n", i, string(evt.Body))
 		})
 	}
 
