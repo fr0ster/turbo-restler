@@ -361,6 +361,7 @@ func (w *webSocketWrapper) readLoop(ctx context.Context) {
 		w.checkStarted()
 
 		w.readMu.Lock()
+		// w.SetReadTimeout(w.getTimeout() / 2)
 		typ, msg, err := w.conn.ReadMessage()
 		w.readMu.Unlock()
 
@@ -388,7 +389,7 @@ func (w *webSocketWrapper) readLoop(ctx context.Context) {
 
 			// Неочікувані помилки — теж вихід
 			w.emit(MessageEvent{Kind: KindError, Error: err})
-			continue
+			return
 		}
 
 		// Визначаємо тип повідомлення
@@ -422,6 +423,7 @@ func (w *webSocketWrapper) writeLoop(ctx context.Context) {
 		case evt := <-w.sendChan:
 
 			w.writeMu.Lock()
+			// w.SetReadTimeout(w.getTimeout() / 2)
 			err := w.conn.WriteMessage(websocket.TextMessage, evt.Body)
 			w.writeMu.Unlock()
 
@@ -513,8 +515,8 @@ func (w *webSocketWrapper) Halt() bool {
 	w.stopped = make(chan struct{}, 1)
 	f := func(timeOut time.Duration) bool {
 		if timeOut != 0 {
-			w.SetReadTimeout(timeOut / 2)
-			w.SetWriteTimeout(timeOut / 2)
+			// w.SetReadTimeout(timeOut / 2)
+			// w.SetWriteTimeout(timeOut / 2)
 		} else {
 			// Stop the read loop
 			if w.cancel != nil {

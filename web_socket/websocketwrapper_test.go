@@ -104,6 +104,7 @@ func TestReadWrite(t *testing.T) {
 			t.Logf(">>> OP: %s, MESSAGE: %s", evt.Op, string(evt.Body))
 		}
 	})
+	sw.SetTimeout(1000 * time.Millisecond)
 	sw.Open()
 	time.Sleep(1000 * time.Millisecond)
 

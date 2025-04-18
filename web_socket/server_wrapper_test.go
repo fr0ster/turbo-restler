@@ -1,6 +1,7 @@
 package web_socket_test
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -15,6 +16,7 @@ import (
 )
 
 func TestServerWrapper_BasicSendReceive(t *testing.T) {
+	t.Parallel()
 	upgrader := websocket.Upgrader{}
 	serverDone := make(chan struct{})
 
@@ -65,6 +67,7 @@ func TestServerWrapper_BasicSendReceive(t *testing.T) {
 }
 
 func TestServerWrapper_EmitError(t *testing.T) {
+	t.Parallel()
 	upgrader := websocket.Upgrader{}
 	done := make(chan struct{})
 
@@ -101,53 +104,61 @@ func TestServerWrapper_EmitError(t *testing.T) {
 }
 
 func TestServerWrapper_ConcurrentMessages(t *testing.T) {
+	t.Parallel()
 	upgrader := websocket.Upgrader{}
-	done := make(chan struct{})
+	var srvWg sync.WaitGroup // для чекання всіх серверних врапперів
 
-	var mu sync.Mutex
-	received := []string{}
+	received := make(chan string, 20) // буферізований, щоб уникнути блокування
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := upgrader.Upgrade(w, r, nil)
 		require.NoError(t, err)
+
 		wrapper := ws.WrapServerConn(conn)
 
+		srvWg.Add(1)
 		wrapper.Subscribe(func(evt ws.MessageEvent) {
 			if evt.Kind == ws.KindData {
-				mu.Lock()
-				received = append(received, string(evt.Body))
-				mu.Unlock()
+				received <- string(evt.Body)
 			}
 		})
 
 		wrapper.Open()
 		<-wrapper.Stopped()
-		close(done)
+		srvWg.Done()
 	}))
 	defer srv.Close()
 
 	url := "ws" + srv.URL[4:]
 
-	var wg sync.WaitGroup
+	var clientWg sync.WaitGroup
 	for i := 0; i < 10; i++ {
-		wg.Add(1)
+		clientWg.Add(1)
+
 		go func(n int) {
+			defer clientWg.Done()
+
 			dialer := websocket.DefaultDialer
 			client, _, err := dialer.Dial(url, nil)
 			require.NoError(t, err)
-			defer func() {
-				wg.Done()
-				client.Close()
-			}()
-			// time.Sleep(1000 * time.Millisecond) // Give the server time to start
-			client.WriteMessage(websocket.TextMessage, []byte("msg-"+string(rune('A'+n))))
+			defer client.Close()
+
+			// Створимо повідомлення типу "msg-A", "msg-B", ...
+			msg := fmt.Sprintf("msg-%c", 'A'+n)
+			err = client.WriteMessage(websocket.TextMessage, []byte(msg))
+			require.NoError(t, err)
 		}(i)
 	}
 
-	wg.Wait()
-	<-done
+	clientWg.Wait() // Дочекатися завершення всіх клієнтів
+	srvWg.Wait()    // Дочекатися завершення всіх серверних врапперів
+	close(received)
 
-	mu.Lock()
-	assert.Len(t, received, 10)
-	mu.Unlock()
+	// Збираємо всі отримані повідомлення
+	var msgs []string
+	for msg := range received {
+		msgs = append(msgs, msg)
+	}
+
+	assert.Len(t, msgs, 10)
 }
