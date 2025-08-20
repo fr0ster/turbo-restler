@@ -65,14 +65,61 @@ func StartWebSocketTestServer(handler http.Handler) (url string, cleanup func())
 	return url, cleanup
 }
 
+// Покращений тестовий сервер з правильною обробкою помилок
+func StartImprovedWebSocketTestServer(handler http.Handler) (url string, cleanup func()) {
+	type contextKey string
+	const doneKey contextKey = "done"
+
+	done := make(chan struct{})
+
+	wrappedHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r = r.WithContext(context.WithValue(r.Context(), doneKey, done))
+		handler.ServeHTTP(w, r)
+	})
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(nil, err)
+	port := ln.Addr().(*net.TCPAddr).Port
+
+	srv := &http.Server{Handler: wrappedHandler}
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_ = srv.Serve(ln)
+	}()
+
+	target := fmt.Sprintf("127.0.0.1:%d", port)
+	for i := 0; i < 10; i++ {
+		conn, err := net.DialTimeout("tcp", target, 100*time.Millisecond)
+		if err == nil {
+			_ = conn.Close()
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	url = fmt.Sprintf("ws://127.0.0.1:%d", port)
+	cleanup = func() {
+		close(done)
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(ctx)
+		wg.Wait()
+	}
+
+	return url, cleanup
+}
+
 func TestReadWrite(t *testing.T) {
 	t.Parallel()
 	u, cleanup := StartWebSocketTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, _ := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+		defer conn.Close()
 
-		// ✅ Обробка закриття від клієнта
+		// ✅ Тиха обробка закриття від клієнта
 		conn.SetCloseHandler(func(code int, text string) error {
-			fmt.Printf("🛑 Server got close frame: code=%d, text=%s\n", code, text)
+			// Не виводимо в лог - це нормально
 			msg := websocket.FormatCloseMessage(code, "")
 			_ = conn.WriteControl(websocket.CloseMessage, msg, time.Now().Add(time.Second))
 			return nil
@@ -86,10 +133,28 @@ func TestReadWrite(t *testing.T) {
 			default:
 				type_, msg, err := conn.ReadMessage()
 				if err != nil {
-					fmt.Println("❌ Server read error:", err)
+					if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+						// Клієнт нормально закрив з'єднання
+						return
+					}
+					// Тільки критичні помилки
+					if !strings.Contains(err.Error(), "broken pipe") {
+						t.Logf("Server read error: %v", err)
+					}
 					return
 				}
-				_ = conn.WriteMessage(type_, msg)
+
+				// Тиха обробка помилок запису
+				err = conn.WriteMessage(type_, msg)
+				if err != nil {
+					if strings.Contains(err.Error(), "broken pipe") {
+						// Клієнт відключився - це нормально
+						return
+					}
+					// Тільки критичні помилки
+					t.Logf("Server write error: %v", err)
+					return
+				}
 			}
 		}
 	}))

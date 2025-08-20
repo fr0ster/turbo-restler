@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,11 +16,34 @@ import (
 	web_socket "github.com/fr0ster/turbo-restler/web_socket"
 )
 
+// Тиха обробка помилок WebSocket для тестів
+func handleWebSocketErrorsQuietly(conn *websocket.Conn, t *testing.T, done <-chan struct{}) {
+	// Тиха обробка закриття
+	conn.SetCloseHandler(func(code int, text string) error {
+		// Не виводимо в лог - це нормально
+		msg := websocket.FormatCloseMessage(code, "")
+		_ = conn.WriteControl(websocket.CloseMessage, msg, time.Now().Add(time.Second))
+		return nil
+	})
+
+	// Тиха обробка ping/pong
+	conn.SetPingHandler(func(appData string) error {
+		// Автоматично відповідаємо pong
+		_ = conn.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(time.Second))
+		return nil
+	})
+}
+
 func TestWebSocketWrapper_SubscribeLifecycle(t *testing.T) {
 	t.Parallel()
 	u, cleanup := StartWebSocketTestServerV2(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, _ := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+		defer conn.Close()
+
+		// ✅ Тиха обробка помилок
 		done := r.Context().Done()
+		handleWebSocketErrorsQuietly(conn, t, done)
+
 		conn.SetPongHandler(func(string) error {
 			logrus.Info("Server: pong received")
 			return nil
@@ -45,6 +69,14 @@ func TestWebSocketWrapper_SubscribeLifecycle(t *testing.T) {
 				default:
 					_, msg, err := conn.ReadMessage()
 					if err != nil {
+						// ✅ Тиха обробка помилок закриття
+						if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) ||
+							strings.Contains(err.Error(), "broken pipe") ||
+							strings.Contains(err.Error(), "unexpected EOF") {
+							// Клієнт нормально закрив з'єднання - це нормально, не логуємо як помилку
+							return
+						}
+						// Тільки справжні помилки логуємо
 						logrus.Errorf("Server: read error: %v", err)
 						return
 					}
@@ -57,17 +89,20 @@ func TestWebSocketWrapper_SubscribeLifecycle(t *testing.T) {
 			select {
 			case <-done:
 				return
-			// default:
-			// type_, msg, err := conn.ReadMessage()
-			// if err != nil {
-			// 	logrus.Errorf("Server: ReadMessage error: %v", err)
-			// }
-			// type_ := websocket.TextMessage
-			// msg := []byte("echo")
 			case msg := <-echoer:
 				type_ := websocket.TextMessage
 				time.Sleep(50 * time.Millisecond)
-				_ = conn.WriteMessage(type_, msg)
+				err := conn.WriteMessage(type_, msg)
+				if err != nil {
+					// ✅ Тиха обробка помилок запису
+					if strings.Contains(err.Error(), "broken pipe") {
+						// Клієнт відключився - це нормально, не логуємо як помилку
+						return
+					}
+					// Тільки справжні помилки логуємо
+					logrus.Errorf("Server: write error: %v", err)
+					return
+				}
 			}
 		}
 	}))
@@ -134,6 +169,18 @@ func StartWebSocketTestServerV2(handler http.Handler) (string, func()) {
 	return url, func() { _ = s.Close() }
 }
 
+// Покращена версія з тихою обробкою помилок
+func StartQuietWebSocketTestServerV2(handler http.Handler) (string, func()) {
+	s := &http.Server{Addr: ":0", Handler: handler}
+	ln, err := newLocalListener()
+	if err != nil {
+		panic(err)
+	}
+	go s.Serve(ln)
+	url := fmt.Sprintf("ws://%s", ln.Addr().String())
+	return url, func() { _ = s.Close() }
+}
+
 func newLocalListener() (ln *net.TCPListener, err error) {
 	addr, err := net.ResolveTCPAddr("tcp", ":0")
 	if err != nil {
@@ -148,7 +195,10 @@ func Test_ResumeWithPingHandler(t *testing.T) {
 		conn, _ := (&websocket.Upgrader{}).Upgrade(w, r, nil)
 		defer conn.Close()
 
+		// ✅ Тиха обробка помилок
 		done := r.Context().Done()
+		handleWebSocketErrorsQuietly(conn, t, done)
+
 		ticker := time.NewTicker(200 * time.Millisecond)
 		defer ticker.Stop()
 
@@ -171,10 +221,23 @@ func Test_ResumeWithPingHandler(t *testing.T) {
 			default:
 				typ, msg, err := conn.ReadMessage()
 				if err != nil {
+					// ✅ Тиха обробка помилок закриття
+					if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) ||
+						strings.Contains(err.Error(), "broken pipe") ||
+						strings.Contains(err.Error(), "unexpected EOF") {
+						return
+					}
 					return
 				}
 				time.Sleep(100 * time.Millisecond)
-				_ = conn.WriteMessage(typ, msg)
+				err = conn.WriteMessage(typ, msg)
+				if err != nil {
+					// ✅ Тиха обробка помилок запису
+					if strings.Contains(err.Error(), "broken pipe") {
+						return
+					}
+					return
+				}
 			}
 		}
 	}))
@@ -312,7 +375,10 @@ func Test_ResumeWithPingHandlerV2(t *testing.T) {
 
 		t.Log("Server: connection upgraded")
 
+		// ✅ Тиха обробка помилок
 		done := r.Context().Done()
+		handleWebSocketErrorsQuietly(conn, t, done)
+
 		ticker := time.NewTicker(200 * time.Millisecond)
 		defer ticker.Stop()
 
@@ -337,12 +403,26 @@ func Test_ResumeWithPingHandlerV2(t *testing.T) {
 			default:
 				typ, msg, err := conn.ReadMessage()
 				if err != nil {
+					// ✅ Тиха обробка помилок закриття
+					if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) ||
+						strings.Contains(err.Error(), "broken pipe") ||
+						strings.Contains(err.Error(), "unexpected EOF") {
+						return
+					}
 					t.Logf("Server: read error: %v", err)
 					return
 				}
 				t.Logf("Server: echoing: %s", string(msg))
 				time.Sleep(100 * time.Millisecond)
-				_ = conn.WriteMessage(typ, msg)
+				err = conn.WriteMessage(typ, msg)
+				if err != nil {
+					// ✅ Тиха обробка помилок запису
+					if strings.Contains(err.Error(), "broken pipe") {
+						return
+					}
+					t.Logf("Server: write error: %v", err)
+					return
+				}
 			}
 		}
 	}))

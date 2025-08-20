@@ -3,6 +3,7 @@ package web_socket
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"sync"
@@ -28,10 +29,42 @@ const (
 	KindControl
 )
 
+// Додаємо структуровані помилки
+type WebSocketError struct {
+	Op      LogOp
+	Message string
+	Err     error
+	Code    int
+}
+
+func (e *WebSocketError) Error() string {
+	if e.Err != nil {
+		return fmt.Sprintf("%s: %s (code: %d) - %v", e.Op, e.Message, e.Code, e.Err)
+	}
+	return fmt.Sprintf("%s: %s (code: %d)", e.Op, e.Message, e.Code)
+}
+
+func (e *WebSocketError) Unwrap() error {
+	return e.Err
+}
+
+// Покращений логер з рівнями
+type LogLevel int
+
+const (
+	LogLevelDebug LogLevel = iota
+	LogLevelInfo
+	LogLevelWarn
+	LogLevelError
+)
+
 type LogRecord struct {
-	Op   LogOp
-	Body []byte
-	Err  error
+	Op      LogOp
+	Level   LogLevel
+	Body    []byte
+	Err     error
+	Time    time.Time
+	Context map[string]interface{}
 }
 
 type MessageEvent struct {
@@ -100,6 +133,18 @@ type WriteEvent struct {
 	ErrChan  chan error
 }
 
+// Метрики та статистика
+type WebSocketMetrics struct {
+	MessagesSent     int64
+	MessagesReceived int64
+	BytesSent        int64
+	BytesReceived    int64
+	Errors           int64
+	Reconnects       int64
+	LastActivity     time.Time
+	Uptime           time.Duration
+}
+
 type webSocketWrapper struct {
 	conn     *websocket.Conn
 	dialer   *websocket.Dialer
@@ -133,32 +178,115 @@ type webSocketWrapper struct {
 	onStopped    func()
 	onConnected  func()
 	onDisconnect func()
+
+	// Додаємо метрики
+	metricsMu sync.RWMutex
+	metrics   WebSocketMetrics
+	startTime time.Time
+
+	// Автоматичне перепідключення
+	reconnectMu     sync.Mutex
+	reconnectConfig *ReconnectConfig
+	pingTicker      *time.Ticker
+	lastPong        time.Time
 }
 
-func NewWebSocketWrapper(d *websocket.Dialer, url string) (WebSocketClientInterface, error) {
-	conn, _, err := d.Dial(url, nil)
-	if err != nil {
-		return nil, errors.New("failed to connect to WebSocket: " + err.Error())
+// Конфігурація перепідключення
+type ReconnectConfig struct {
+	MaxAttempts         int
+	InitialDelay        time.Duration
+	MaxDelay            time.Duration
+	BackoffMultiplier   float64
+	EnableAutoReconnect bool
+}
+
+// Конфігурація WebSocket
+type WebSocketConfig struct {
+	URL               string
+	Dialer            *websocket.Dialer
+	BufferSize        int
+	ReadTimeout       time.Duration
+	WriteTimeout      time.Duration
+	PingInterval      time.Duration
+	PongWait          time.Duration
+	MaxMessageSize    int64
+	EnableCompression bool
+	EnableMetrics     bool
+	ReconnectConfig   *ReconnectConfig
+}
+
+// Конструктор з конфігурацією
+func NewWebSocketWrapperWithConfig(config WebSocketConfig) (WebSocketClientInterface, error) {
+	if config.BufferSize == 0 {
+		config.BufferSize = 128
 	}
+	if config.ReadTimeout == 0 {
+		config.ReadTimeout = 30 * time.Second
+	}
+	if config.WriteTimeout == 0 {
+		config.WriteTimeout = 10 * time.Second
+	}
+	if config.PingInterval == 0 {
+		config.PingInterval = 30 * time.Second
+	}
+	if config.PongWait == 0 {
+		config.PongWait = 60 * time.Second
+	}
+	if config.MaxMessageSize == 0 {
+		config.MaxMessageSize = 512 * 1024 // 512KB
+	}
+
+	conn, _, err := config.Dialer.Dial(config.URL, nil)
+	if err != nil {
+		return nil, &WebSocketError{
+			Op:      OpSend,
+			Message: "failed to connect to WebSocket",
+			Err:     err,
+			Code:    1,
+		}
+	}
+
+	// Налаштування з'єднання
+	conn.SetReadLimit(config.MaxMessageSize)
+	conn.SetPongHandler(func(string) error {
+		conn.SetReadDeadline(time.Now().Add(config.PongWait))
+		return nil
+	})
+
 	return &webSocketWrapper{
 		conn:      conn,
-		dialer:    d,
-		url:       url,
-		sendChan:  make(chan WriteEvent, 128),
+		dialer:    config.Dialer,
+		url:       config.URL,
+		sendChan:  make(chan WriteEvent, config.BufferSize),
 		started:   make(chan struct{}, 1),
 		stopped:   make(chan struct{}, 1),
 		subs:      make(map[int]func(MessageEvent)),
 		timeoutMu: sync.RWMutex{},
-		timeout:   1000 * time.Millisecond,
+		timeout:   config.ReadTimeout,
+		startTime: time.Now(),
 	}, nil
 }
 
+// Оригінальний конструктор для зворотної сумісності
+func NewWebSocketWrapper(d *websocket.Dialer, url string) (WebSocketClientInterface, error) {
+	config := WebSocketConfig{
+		URL:            url,
+		Dialer:         d,
+		BufferSize:     128,
+		ReadTimeout:    1000 * time.Millisecond,
+		WriteTimeout:   1000 * time.Millisecond,
+		PingInterval:   30 * time.Second,
+		PongWait:       60 * time.Second,
+		MaxMessageSize: 512 * 1024, // 512KB
+		EnableMetrics:  false,
+	}
+	return NewWebSocketWrapperWithConfig(config)
+}
+
 func WrapServerConn(conn *websocket.Conn) WebSocketServerInterface {
-	is_server := &atomic.Bool{}
-	is_server.Store(true)
-	return &webSocketWrapper{
+	ws := &webSocketWrapper{
 		conn:      conn,
-		isServer:  *is_server,
+		isServer:  atomic.Bool{},
 		sendChan:  make(chan WriteEvent, 128),
 		started:   make(chan struct{}, 1),
 		stopped:   make(chan struct{}, 1),
@@ -166,6 +294,8 @@ func WrapServerConn(conn *websocket.Conn) WebSocketServerInterface {
 		timeoutMu: sync.RWMutex{},
 		timeout:   1000 * time.Millisecond,
 	}
+	ws.isServer.Store(true)
+	return ws
 }
 
 func (w *webSocketWrapper) SetMessageLogger(f func(LogRecord)) {
@@ -364,8 +494,11 @@ func (w *webSocketWrapper) readLoop(ctx context.Context) {
 		}
 
 		if w.logger != nil {
-			w.logger(LogRecord{Op: OpReceive, Body: msg, Err: err})
+			w.logger(LogRecord{Op: OpReceive, Level: LogLevelInfo, Body: msg, Err: err, Time: time.Now()})
 		}
+
+		// Оновлюємо метрики
+		w.updateMetrics(OpReceive, msg, err)
 
 		if err != nil {
 			if w.onDisconnect != nil {
@@ -420,8 +553,11 @@ func (w *webSocketWrapper) writeLoop(ctx context.Context) {
 			w.writeMu.Unlock()
 
 			if w.logger != nil {
-				w.logger(LogRecord{Op: OpSend, Body: evt.Body, Err: err})
+				w.logger(LogRecord{Op: OpSend, Level: LogLevelInfo, Body: evt.Body, Err: err, Time: time.Now()})
 			}
+
+			// Оновлюємо метрики
+			w.updateMetrics(OpSend, evt.Body, err)
 
 			if evt.Callback != nil {
 				evt.Callback(err)
@@ -575,4 +711,36 @@ func (w *webSocketWrapper) SetConnectedHandler(f func()) {
 
 func (w *webSocketWrapper) SetDisconnectHandler(f func()) {
 	w.onDisconnect = f
+}
+
+// GetMetrics повертає поточні метрики WebSocket
+func (w *webSocketWrapper) GetMetrics() WebSocketMetrics {
+	w.metricsMu.RLock()
+	defer w.metricsMu.RUnlock()
+
+	// Оновлюємо uptime
+	w.metrics.Uptime = time.Since(w.startTime)
+
+	return w.metrics
+}
+
+// updateMetrics оновлює метрики
+func (w *webSocketWrapper) updateMetrics(op LogOp, body []byte, err error) {
+	w.metricsMu.Lock()
+	defer w.metricsMu.Unlock()
+
+	w.metrics.LastActivity = time.Now()
+
+	if err != nil {
+		w.metrics.Errors++
+	} else {
+		switch op {
+		case OpSend:
+			w.metrics.MessagesSent++
+			w.metrics.BytesSent += int64(len(body))
+		case OpReceive:
+			w.metrics.MessagesReceived++
+			w.metrics.BytesReceived += int64(len(body))
+		}
+	}
 }
