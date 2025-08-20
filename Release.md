@@ -1,5 +1,26 @@
 # Release Notes for Turbo-Restler
 
+## v0.14.25
+
+### Release Date: 2024-08-20
+
+### 🎉 Major Enhancement Release
+
+**What's New:**
+- **Structured Error Handling**: New `WebSocketError` type with structured error information
+- **WebSocket Metrics**: Real-time metrics for messages, bytes, errors, and reconnects
+- **Circuit Breaker Pattern**: REST API circuit breaker with configurable thresholds
+- **Automatic Reconnection**: Smart reconnection with exponential backoff
+- **Enhanced Testing**: Quiet test mode to filter out WebSocket noise
+- **Comprehensive Makefile**: Build automation and development tools
+- **Examples**: Working WebSocket examples with configuration
+
+**Breaking Changes:** None - Full backward compatibility maintained.
+
+**Go Version:** 1.23.0+
+
+---
+
 ## v0.14.22
 
 ### Release Date: 2025-04-15

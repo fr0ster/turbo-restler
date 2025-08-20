@@ -1,13 +1,17 @@
-# 🔸 WebSocketWrapper for Go
+# 🔸 Turbo-Restler for Go
 
-A robust and thread-safe WebSocket wrapper built around `gorilla/websocket`, featuring:
+A comprehensive WebSocket and REST API library built around `gorilla/websocket`, featuring:
 
 - 🧵 Concurrent-safe read/write
 - ⏸ Pause/Resume capability
 - 📩 Event-based message dispatching
-- 🧪 Built-in logger
+- 🧪 Built-in logger with structured levels
 - 🛁 Control frame handlers (Ping/Pong/Close)
 - 🚀 Clean shutdown and loop lifecycle signaling
+- 📊 **NEW**: WebSocket metrics and monitoring
+- 🛡️ **NEW**: Circuit Breaker pattern for REST API
+- 🔄 **NEW**: Automatic reconnection with exponential backoff
+- 🧪 **NEW**: Quiet test mode for better debugging
 
 ---
 
@@ -92,6 +96,83 @@ if ws.WaitAllLoops(2 * time.Second) {
 ```
 
 ---
+
+## 🆕 New Features (v0.14.25+)
+
+### 📊 WebSocket Metrics
+```go
+ws := NewWebSocketWrapperWithConfig(WebSocketConfig{
+    URL:           "wss://example.com/ws",
+    EnableMetrics: true,
+})
+
+// Get real-time metrics
+metrics := ws.GetMetrics()
+fmt.Printf("Messages sent: %d, received: %d\n", 
+    metrics.MessagesSent, metrics.MessagesReceived)
+```
+
+### 🛡️ Circuit Breaker for REST API
+```go
+config := &RestAPIConfig{
+    Timeout:    5 * time.Second,
+    MaxRetries: 3,
+    CircuitBreaker: &CircuitBreakerConfig{
+        FailureThreshold: 5,
+        RecoveryTimeout:  30 * time.Second,
+    },
+}
+
+response, err := CallRestAPIWithConfig(req, config)
+```
+
+### 🔄 Automatic Reconnection
+```go
+config := WebSocketConfig{
+    ReconnectConfig: &ReconnectConfig{
+        MaxAttempts:        5,
+        InitialDelay:       1 * time.Second,
+        MaxDelay:           30 * time.Second,
+        BackoffMultiplier:  2.0,
+        EnableAutoReconnect: true,
+    },
+}
+```
+
+### 🧪 Quiet Testing
+```bash
+# Run tests without WebSocket noise
+make test-quiet
+
+# Or use short command
+make tq
+```
+
+## 🛠️ Development
+
+```bash
+# Build everything
+make all
+
+# Run tests
+make test
+
+# Run quiet tests
+make test-quiet
+
+# Build examples
+make examples
+
+# Clean build artifacts
+make clean
+```
+
+## 📚 Documentation
+
+- **CHANGELOG.md**: Detailed change history
+- **RELEASE.md**: Release notes and migration guide
+- **examples/**: Working code samples
+- **Makefile**: Build automation commands
 
 ## 📜 License
 
