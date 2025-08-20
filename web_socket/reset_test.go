@@ -18,6 +18,9 @@ import (
 
 // Тиха обробка помилок WebSocket для тестів
 func handleWebSocketErrorsQuietly(conn *websocket.Conn, t *testing.T, done <-chan struct{}) {
+	// Silence unused parameter warnings in tests
+	_ = t
+	_ = done
 	// Тиха обробка закриття
 	conn.SetCloseHandler(func(code int, text string) error {
 		// Не виводимо в лог - це нормально
@@ -339,9 +342,10 @@ func TestLoopsV2(t *testing.T) {
 	})
 
 	ws.Subscribe(func(evt web_socket.MessageEvent) {
-		if evt.Kind == web_socket.KindData {
+		switch evt.Kind {
+		case web_socket.KindData:
 			t.Logf("Data: %s", string(evt.Body))
-		} else if evt.Kind == web_socket.KindError {
+		case web_socket.KindError:
 			t.Logf("Error: %v", evt.Error)
 		}
 	})
@@ -353,9 +357,10 @@ func TestLoopsV2(t *testing.T) {
 	})
 
 	ws.Subscribe(func(evt web_socket.MessageEvent) {
-		if evt.Kind == web_socket.KindData {
+		switch evt.Kind {
+		case web_socket.KindData:
 			t.Logf("Data V2: %s", string(evt.Body))
-		} else if evt.Kind == web_socket.KindError {
+		case web_socket.KindError:
 			t.Logf("Error V2: %v", evt.Error)
 		}
 	})
@@ -451,10 +456,11 @@ func Test_ResumeWithPingHandlerV2(t *testing.T) {
 
 	recv := make(chan string, 1)
 	sw.Subscribe(func(evt web_socket.MessageEvent) {
-		if evt.Kind == web_socket.KindData {
+		switch evt.Kind {
+		case web_socket.KindData:
 			t.Logf("Client EVENT: DATA: %s", evt.Body)
 			recv <- string(evt.Body)
-		} else if evt.Kind == web_socket.KindError {
+		case web_socket.KindError:
 			t.Logf("Client EVENT: ERROR: %v", evt.Error)
 		}
 	})

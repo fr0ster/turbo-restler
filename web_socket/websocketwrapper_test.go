@@ -873,9 +873,10 @@ func TestLoops(t *testing.T) {
 	ws.SetTimeout(10 * time.Millisecond)
 
 	ws.Subscribe(func(evt web_socket.MessageEvent) {
-		if evt.Kind == web_socket.KindData {
+		switch evt.Kind {
+		case web_socket.KindData:
 			fmt.Printf("✅ Data: %s\n", string(evt.Body))
-		} else if evt.Kind == web_socket.KindError {
+		case web_socket.KindError:
 			fmt.Printf("🛑 Error: %v\n", evt.Error)
 		}
 	})

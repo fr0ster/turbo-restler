@@ -82,14 +82,15 @@ func TestServerWrapper_EmitError(t *testing.T) {
 		require.NoError(t, err)
 		wrapper := ws.WrapServerConn(conn)
 		wrapper.SetTimeout(5 * time.Second)
-		wrapper.Open()
-		<-wrapper.Started()
-
 		wrapper.Subscribe(func(evt ws.MessageEvent) {
 			if evt.Kind == ws.KindFatalError || evt.Kind == ws.KindError {
 				gotError = evt.Error
 			}
 		})
+
+		// Відкриваємо після реєстрації підписника, щоб уникнути гоночних умов
+		wrapper.Open()
+		<-wrapper.Started()
 		<-wrapper.Stopped()
 		close(done)
 	}))

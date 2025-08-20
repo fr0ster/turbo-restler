@@ -49,3 +49,6 @@ func assertReceived(
 	defer mu.Unlock()
 	assert.Equal(t, expected, received)
 }
+
+// Забезпечуємо використання assertReceived, щоб уникнути попередження про невикористану функцію в інструментах аналізу коду
+var _ = assertReceived

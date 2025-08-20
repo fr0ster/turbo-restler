@@ -105,6 +105,10 @@ func main() {
 	ws.Unsubscribe(subID)
 
 	fmt.Println("✅ WebSocket example completed")
+
+	// Запуск прикладу з метриками
+	fmt.Println("\n📊 Running metrics example...")
+	metricsExample()
 }
 
 // Приклад 2: Використання з метриками

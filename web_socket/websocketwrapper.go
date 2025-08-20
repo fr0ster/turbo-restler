@@ -189,6 +189,11 @@ type webSocketWrapper struct {
 	reconnectConfig *ReconnectConfig
 	pingTicker      *time.Ticker
 	lastPong        time.Time
+
+	// Остання помилка для повторної доставки пізнім підписникам
+	lastMu      sync.RWMutex
+	lastErr     error
+	lastErrKind MessageKind
 }
 
 // Конфігурація перепідключення
@@ -248,12 +253,9 @@ func NewWebSocketWrapperWithConfig(config WebSocketConfig) (WebSocketClientInter
 
 	// Налаштування з'єднання
 	conn.SetReadLimit(config.MaxMessageSize)
-	conn.SetPongHandler(func(string) error {
-		conn.SetReadDeadline(time.Now().Add(config.PongWait))
-		return nil
-	})
 
-	return &webSocketWrapper{
+	// Побудова екземпляра, щоб ініціювати додаткові поля
+	w := &webSocketWrapper{
 		conn:      conn,
 		dialer:    config.Dialer,
 		url:       config.URL,
@@ -264,7 +266,26 @@ func NewWebSocketWrapperWithConfig(config WebSocketConfig) (WebSocketClientInter
 		timeoutMu: sync.RWMutex{},
 		timeout:   config.ReadTimeout,
 		startTime: time.Now(),
-	}, nil
+	}
+
+	// Зберігаємо конфіг перепідключення (на майбутнє)
+	if config.ReconnectConfig != nil {
+		w.reconnectConfig = config.ReconnectConfig
+	}
+
+	// Ініціюємо пінг-тикачу, якщо заданий інтервал
+	if config.PingInterval > 0 {
+		w.pingTicker = time.NewTicker(config.PingInterval)
+	}
+
+	// Обробник PONG: оновлює дедлайн і lastPong
+	w.conn.SetPongHandler(func(string) error {
+		w.lastPong = time.Now()
+		w.conn.SetReadDeadline(time.Now().Add(config.PongWait))
+		return nil
+	})
+
+	return w, nil
 }
 
 // Оригінальний конструктор для зворотної сумісності
@@ -307,7 +328,14 @@ func (w *webSocketWrapper) SetPingHandler(f func(string) error) {
 }
 
 func (w *webSocketWrapper) SetPongHandler(f func(string) error) {
-	w.conn.SetPongHandler(f)
+	// Обгортаємо, щоб також оновлювати lastPong
+	w.conn.SetPongHandler(func(s string) error {
+		w.lastPong = time.Now()
+		if f != nil {
+			return f(s)
+		}
+		return nil
+	})
 }
 
 func (w *webSocketWrapper) SetReadTimeout(timeout time.Duration) {
@@ -345,6 +373,15 @@ func (w *webSocketWrapper) Subscribe(f func(MessageEvent)) int {
 	w.subsMu.Lock()
 	w.subs[id] = f
 	w.subsMu.Unlock()
+
+	// Якщо вже була помилка до підписки — одразу повідомимо підписника
+	w.lastMu.RLock()
+	lastErr := w.lastErr
+	lastKind := w.lastErrKind
+	w.lastMu.RUnlock()
+	if lastErr != nil && (lastKind == KindError || lastKind == KindFatalError) {
+		go f(MessageEvent{Kind: lastKind, Error: lastErr})
+	}
 	return id
 }
 
@@ -363,6 +400,14 @@ func (w *webSocketWrapper) UnsubscribeAll() {
 func (w *webSocketWrapper) emit(evt MessageEvent) {
 	w.subsMu.RLock()
 	defer w.subsMu.RUnlock()
+
+	// Запам'ятовуємо останню помилку
+	if evt.Kind == KindError || evt.Kind == KindFatalError {
+		w.lastMu.Lock()
+		w.lastErr = evt.Error
+		w.lastErrKind = evt.Kind
+		w.lastMu.Unlock()
+	}
 	for _, handler := range w.subs {
 		handler(evt)
 	}
@@ -397,6 +442,10 @@ func (w *webSocketWrapper) Open() {
 	w.stopped = make(chan struct{}, 1)
 	go w.readLoop(w.ctx)
 	go w.writeLoop(w.ctx)
+	// Для клієнта — запускаємо keepalive тикачу, якщо вона є
+	if !w.isServer.Load() && w.pingTicker != nil {
+		go w.pingLoop(w.ctx)
+	}
 }
 
 func (w *webSocketWrapper) Send(evt WriteEvent) error {
@@ -669,6 +718,11 @@ func (w *webSocketWrapper) Close() error {
 		return errors.New("timeout waiting for loops to finish")
 	}
 
+	// Зупиняємо тикачу пінгів, якщо була
+	if w.pingTicker != nil {
+		w.pingTicker.Stop()
+	}
+
 	// 🔽 Надішли CloseMessage перед закриттям TCP-з'єднання
 	_ = w.conn.WriteMessage(websocket.CloseMessage,
 		websocket.FormatCloseMessage(websocket.CloseNormalClosure, "client closing"))
@@ -684,6 +738,9 @@ func (w *webSocketWrapper) Close() error {
 }
 
 func (w *webSocketWrapper) Reconnect() error {
+	// Захист від конкурентних реконектів
+	w.reconnectMu.Lock()
+	defer w.reconnectMu.Unlock()
 	conn, _, err := w.dialer.Dial(w.url, nil)
 	if err != nil {
 		return err
@@ -741,6 +798,19 @@ func (w *webSocketWrapper) updateMetrics(op LogOp, body []byte, err error) {
 		case OpReceive:
 			w.metrics.MessagesReceived++
 			w.metrics.BytesReceived += int64(len(body))
+		}
+	}
+}
+
+// Періодично відправляє Ping як keepalive (для клієнтських врапперів)
+func (w *webSocketWrapper) pingLoop(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-w.pingTicker.C:
+			// Best-effort ping; помилки проявляться у read/write loops
+			_ = w.conn.WriteControl(websocket.PingMessage, []byte("ping"), time.Now().Add(1*time.Second))
 		}
 	}
 }
