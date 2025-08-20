@@ -13,13 +13,13 @@ import (
 	"github.com/bitly/go-simplejson"
 
 	"github.com/fr0ster/turbo-restler/rest_api"
-	signature "github.com/fr0ster/turbo-signer/signature"
+	signature "github.com/fr0ster/turbo-signer/v2/signature"
 
 	"github.com/stretchr/testify/assert"
 )
 
 type Signature interface {
-	CreateSignature(queryString string) string
+	CreateSignature(queryString string) (string, error)
 	GetAPIKey() string
 }
 
@@ -34,7 +34,10 @@ func NewServer(sign Signature) *Server {
 }
 
 func (s *Server) validateHMACSignature(message, signature string) bool {
-	expectedSignature := s.sign.CreateSignature(message)
+	expectedSignature, err := s.sign.CreateSignature(message)
+	if err != nil {
+		return false
+	}
 	return hmac.Equal([]byte(expectedSignature), []byte(signature))
 }
 
@@ -102,8 +105,8 @@ func (s *Server) Start() {
 }
 
 var (
-	apiKey   string  = "your_api_key"
-	sign             = signature.NewSignHMAC(signature.PublicKey("your_api_key"), signature.SecretKey("your_secret_key"))
+	apiKey   string  = "test_api_key_12345678901234567890123456789012"
+	sign             = signature.NewSignHMAC(signature.PublicKey("test_api_key_12345678901234567890123456789012"), signature.SecretKey("test_secret_key_123456789012345678901234567890123456789012345678901234567890"))
 	server   *Server = NewServer(sign)
 	syncOnce         = new(sync.Once)
 )
