@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"strconv"
 	"sync"
 	"testing"
@@ -82,7 +83,7 @@ func (s *Server) paramsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	currentTime := time.Now().UnixNano() / int64(time.Millisecond)
-	if currentTime-ts > 1000 { // Allow a maximum of 60 seconds difference
+	if currentTime-ts > 60000 { // Allow a maximum of 60 seconds difference
 		http.Error(w, "Timestamp too old", http.StatusUnauthorized)
 		return
 	}
@@ -98,10 +99,15 @@ func (s *Server) paramsHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
-func (s *Server) Start() {
-	http.HandleFunc("/no-params", s.noParamsHandler)
-	http.HandleFunc("/params", s.paramsHandler)
-	http.ListenAndServe(":8080", nil)
+var testSrv *httptest.Server
+var mux *http.ServeMux
+
+func (s *Server) Start() string {
+	mux = http.NewServeMux()
+	mux.HandleFunc("/no-params", s.noParamsHandler)
+	mux.HandleFunc("/params", s.paramsHandler)
+	testSrv = httptest.NewServer(mux)
+	return testSrv.URL
 }
 
 var (
@@ -111,10 +117,15 @@ var (
 	syncOnce         = new(sync.Once)
 )
 
-func startServer() {
+func startServer() string {
+	var url string
 	syncOnce.Do(func() {
-		go server.Start()
+		url = server.Start()
 	})
+	if testSrv != nil {
+		return testSrv.URL
+	}
+	return url
 }
 
 func param2request(params *simplejson.Json, baseUrl, endpoint, method, apiKey string) (req *http.Request, err error) {
@@ -140,13 +151,13 @@ func param2request(params *simplejson.Json, baseUrl, endpoint, method, apiKey st
 }
 
 func TestCallRestAPI(t *testing.T) {
-	startServer()
+	baseURL := startServer()
 	params := simplejson.New()
 	params.Set("timestamp", fmt.Sprintf("%d", time.Now().UnixNano()/int64(time.Millisecond)))
 	params, err := sign.SignParameters(params)
 	assert.Nil(t, err)
 
-	req, err := param2request(params, "http://localhost:8080", "/no-params", "GET", apiKey)
+	req, err := param2request(params, baseURL, "/no-params", "GET", apiKey)
 
 	assert.NoError(t, err)
 	response1, err := rest_api.CallRestAPI(req)
@@ -161,7 +172,7 @@ func TestCallRestAPI(t *testing.T) {
 	params.Set("timestamp", fmt.Sprintf("%d", time.Now().UnixNano()/int64(time.Millisecond)))
 	params, err = sign.SignParameters(params)
 	assert.Nil(t, err)
-	req, err = param2request(params, "http://localhost:8080", "/params", "GET", apiKey)
+	req, err = param2request(params, baseURL, "/params", "GET", apiKey)
 	assert.NoError(t, err)
 	response2, err := rest_api.CallRestAPI(req)
 	assert.NoError(t, err)
@@ -169,7 +180,7 @@ func TestCallRestAPI(t *testing.T) {
 }
 
 func TestCallRestAPIWithError(t *testing.T) {
-	startServer()
+	baseURL := startServer()
 	params := simplejson.New()
 	params.Set("param1", "value1")
 	params.Set("param2", "value2")
@@ -180,7 +191,7 @@ func TestCallRestAPIWithError(t *testing.T) {
 	params.Set("timestamp", fmt.Sprintf("%d", time.Now().UnixNano()/int64(time.Millisecond)))
 	params, err := sign.SignParameters(params)
 	assert.Nil(t, err)
-	req, err := param2request(params, "http://localhost:8080", "/params", "GET", apiKey)
+	req, err := param2request(params, baseURL, "/params", "GET", apiKey)
 	assert.NoError(t, err)
 	response2, err := rest_api.CallRestAPI(req)
 	assert.Error(t, err)
