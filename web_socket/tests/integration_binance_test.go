@@ -17,7 +17,6 @@ import (
 // Test connecting to /ws control endpoint and subscribing to kline stream via command.
 func Test_BinanceTestnet_WS_SubscribeKline(t *testing.T) {
 	t.Parallel()
-
 	url := "wss://ws-api.binance.com:443/ws-api/v3"
 	client, err := ws.NewWebSocketWrapper(websocket.DefaultDialer, url)
 	require.NoError(t, err)
@@ -61,7 +60,6 @@ func Test_BinanceTestnet_WS_SubscribeKline(t *testing.T) {
 // Test connecting to combined streams endpoint and receiving first message.
 func Test_BinanceTestnet_WS_CombinedKline(t *testing.T) {
 	t.Parallel()
-
 	url := "wss://stream.binance.com:443/stream?streams=btcusdt@kline_1m"
 	client, err := ws.NewWebSocketWrapper(websocket.DefaultDialer, url)
 	require.NoError(t, err)
@@ -87,7 +85,7 @@ func Test_BinanceTestnet_WS_CombinedKline(t *testing.T) {
 	select {
 	case <-done:
 	// ok
-	case <-time.After(10 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("timeout waiting for first combined kline message from Binance testnet")
 	}
 }
@@ -95,7 +93,6 @@ func Test_BinanceTestnet_WS_CombinedKline(t *testing.T) {
 // Raw gorilla dial to inspect handshake status/body and try Origin header.
 func Test_BinanceTestnet_WS_RawGorilla(t *testing.T) {
 	t.Parallel()
-
 	// Use a valid direct stream endpoint
 	url := "wss://stream.binance.com:443/ws/btcusdt@kline_1m"
 

@@ -139,11 +139,7 @@ func TestWebSocketWrapper_SubscribeLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	sw.SetTimeout(timeout)
 	sw.Open()
-	<-sw.Started()
-	sw.SetPingHandler(func(string) error {
-		return sw.GetControl().WriteControl(websocket.PongMessage, []byte("pong"), time.Now().Add(time.Second))
-	})
-	time.Sleep(1000 * time.Millisecond)
+	require.True(t, sw.WaitStarted(), "client did not start in time")
 	verifyMessage(sw, "first")
 	ok := sw.Halt()
 	sw.WaitStopped()
@@ -167,7 +163,12 @@ func StartWebSocketTestServerV2(handler http.Handler) (string, func()) {
 	if err != nil {
 		panic(err)
 	}
-	go s.Serve(ln)
+	ready := make(chan struct{}, 1)
+	go func() {
+		close(ready)
+		_ = s.Serve(ln)
+	}()
+	<-ready
 	url := fmt.Sprintf("ws://%s", ln.Addr().String())
 	return url, func() { _ = s.Close() }
 }
@@ -259,9 +260,6 @@ func Test_ResumeWithPingHandler(t *testing.T) {
 	<-sw.Started()
 
 	// Phase 1
-	// sw.SetPingHandler(func(string) error {
-	// 	return sw.GetControl().WriteControl(websocket.PongMessage, []byte("pong"), time.Now().Add(time.Second))
-	// })
 	recv := make(chan string, 1)
 	sw.Subscribe(func(evt web_socket.MessageEvent) {
 		if evt.Kind == web_socket.KindData {
@@ -280,18 +278,10 @@ func Test_ResumeWithPingHandler(t *testing.T) {
 	require.True(t, sw.Halt())
 	sw.WaitStopped()
 
-	// Phase 2
+	// Phase 2: reconnect and resume before sending next message
 	sw.Reconnect()
 	sw.Resume()
-	<-sw.Started()
-	require.NoError(t, sw.Send(web_socket.WriteEvent{Body: []byte("second")}))
-	time.Sleep(100 * time.Millisecond)
-
-	// // ✅ Якщо закоментувати наступний блок — test може впасти
-	// sw.SetPingHandler(func(string) error {
-	// 	return sw.GetControl().WriteControl(websocket.PongMessage, []byte("pong"), time.Now().Add(time.Second))
-	// })
-
+	require.True(t, sw.WaitStarted(), "client did not start in time")
 	require.NoError(t, sw.Send(web_socket.WriteEvent{Body: []byte("second")}))
 	select {
 	case msg := <-recv:
@@ -337,9 +327,7 @@ func TestLoopsV2(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create WebSocketWrapper: %v", err)
 	}
-	ws.SetPingHandler(func(string) error {
-		return ws.GetControl().WriteControl(websocket.PongMessage, []byte("pong"), time.Now().Add(time.Second))
-	})
+	// Use default Ping/Pong handling
 
 	ws.Subscribe(func(evt web_socket.MessageEvent) {
 		switch evt.Kind {
@@ -352,9 +340,7 @@ func TestLoopsV2(t *testing.T) {
 
 	// Просто відкриваємо і чекаємо трохи
 	ws.Resume()
-	ws.SetPingHandler(func(string) error {
-		return ws.GetControl().WriteControl(websocket.PongMessage, []byte("pong"), time.Now().Add(time.Second))
-	})
+	// Use default Ping/Pong handling
 
 	ws.Subscribe(func(evt web_socket.MessageEvent) {
 		switch evt.Kind {
@@ -452,7 +438,7 @@ func Test_ResumeWithPingHandlerV2(t *testing.T) {
 
 	t.Log("Opening connection...")
 	sw.Open()
-	<-sw.Started()
+	require.True(t, sw.WaitStarted(), "client did not start in time")
 
 	recv := make(chan string, 1)
 	sw.Subscribe(func(evt web_socket.MessageEvent) {
@@ -483,7 +469,7 @@ func Test_ResumeWithPingHandlerV2(t *testing.T) {
 	t.Log("PHASE 2: resuming")
 	sw.Reconnect()
 	sw.Resume()
-	<-sw.Started()
+	require.True(t, sw.WaitStarted(), "client did not start in time")
 	t.Log("PHASE 2: resumed")
 
 	t.Log("PHASE 2: sending 'second'")

@@ -1,5 +1,42 @@
 # Release Notes for Turbo-Restler
 
+## v0.15.0
+
+### Release Date: 2025-08-24
+
+### WebSocket Dialer Behavior Update (semver minor → feature with behavior tightening)
+
+What's changed (WebSocket):
+- NewWebSocketWrapperWithConfig now treats the provided external `*websocket.Dialer` as the single source of truth for network settings. If you pass a Dialer, we use it as-is for the handshake and do not mutate it. If `Dialer` is nil, we clone `websocket.DefaultDialer`.
+- Core parameters effectively “imported” from Dialer at connect time:
+  - Proxy, TLSClientConfig, HandshakeTimeout, EnableCompression
+  - ReadBufferSize/WriteBufferSize (used to derive wrapper BufferSize when `BufferSize==0`)
+- Connection-level handlers are always reinstalled after Dial (we do not copy any handler-like behavior from a Dialer, because handlers are per-connection):
+  - Pong handler updates read deadline (PongWait)
+  - Ping handler replies with Pong using the wrapper write deadline
+  - Close handler records last error/kind
+  You can override them later via `SetPingHandler` / `SetPongHandler`.
+- Compression preference: `EnableCompression` is respected from either config or Dialer.
+- `RequestHeader` from `WebSocketConfig` (if provided) is passed to Dial.
+
+Notes (Reconnect):
+- `Reconnect()` reuses the stored URL and the same Dialer instance, preserving your Proxy/TLS/etc.
+
+Migration guidance:
+- If your app relied on the wrapper mutating the Dialer (timeouts/buffers/compression), set these on your Dialer before passing it in, or provide them explicitly in `WebSocketConfig`.
+- If you expect a specific internal buffer size regardless of Dialer, set `BufferSize` in `WebSocketConfig` (otherwise it will be derived from Dialer buffer sizes, or fallback to 128).
+- If you need custom Ping/Pong/Close behaviors, call `SetPingHandler`/`SetPongHandler` after `Open()`/`WaitStarted()`.
+
+Tag: v0.15.0
+
+#### REST http.Client behavior (clarified)
+- When `RestAPIConfig.HTTPClient` is provided, we use your `*http.Client` as-is:
+  - Transport (and its Proxy), TLS, `CheckRedirect`, and `Jar` are respected.
+  - We do not mutate your client; no hidden proxy or transport overrides are applied.
+  - We synchronize only `client.Timeout` back into `RestAPIConfig.Timeout` for consistency in internal waits.
+- When `HTTPClient` is nil, an internal default client is constructed based on `RestAPIConfig.Timeout`. The default client does not set any Proxy.
+- Retries, backoff, and Circuit Breaker behavior are unchanged and operate on top of your client.
+
 ## v0.14.27
 
 ### Release Date: 2025-08-24

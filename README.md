@@ -127,7 +127,7 @@ response, err := CallRestAPIWithConfig(req, config)
 ```
 
 ### 🌐 Custom http.Client (timeouts, proxy)
-You can inject your own `*http.Client` (with custom Timeout/Proxy/Transport). When provided, Restler will use it and sync `Timeout` back into `RestAPIConfig`:
+Proxy support for REST is available only when you pass a custom `*http.Client` (with your Transport/Proxy). The default REST client does not configure a proxy. When provided, Restler will use your client as-is and sync its `Timeout` back into `RestAPIConfig`:
 
 ```go
 proxyURL, _ := url.Parse("http://localhost:8080")
@@ -156,7 +156,7 @@ resp, err := CallRestAPIWithConfig(req, cfg)
 - Open: requests are blocked until `RecoveryTimeout` elapses.
 - Half-Open: allows up to `HalfOpenLimit` trial requests; on success → Closed, on failure → Open.
 
-### 🌐 Proxy usage example
+### 🌐 REST proxy usage example (via injected client)
 ```go
 proxyURL, _ := url.Parse("http://127.0.0.1:8080")
 transport := &http.Transport{Proxy: http.ProxyURL(proxyURL)}
@@ -171,6 +171,34 @@ if err != nil {
 }
 _ = resp // use response JSON
 ```
+
+### 🌐 WebSocket proxy & dialer usage (v0.15.0)
+Pass a preconfigured `*websocket.Dialer` — the wrapper uses it as-is for the handshake. If `Dialer` is nil, we clone `websocket.DefaultDialer`.
+
+Imported from Dialer at connect time:
+- Proxy, TLSClientConfig, HandshakeTimeout, EnableCompression
+- ReadBufferSize/WriteBufferSize (used to derive wrapper BufferSize when `BufferSize==0`)
+
+Wrapper-config controls (preferred over Dialer defaults):
+- ReadTimeout, WriteTimeout, PingInterval, PongWait, MaxMessageSize, BufferSize
+
+```go
+dialer := &websocket.Dialer{
+    Proxy:           http.ProxyURL(proxyURL),
+    HandshakeTimeout: 10 * time.Second,
+    EnableCompression: true,
+}
+ws, err := NewWebSocketWrapper(dialer, "wss://example.com/ws")
+```
+
+Notes:
+- On connect we always set connection-level handlers: Pong updates read deadline (PongWait), Ping replies with Pong using write deadline, Close records the last error. You can override them later via `SetPingHandler` / `SetPongHandler`.
+- `RequestHeader` in `WebSocketConfig` (when using `NewWebSocketWrapperWithConfig`) is passed to Dial.
+- `Reconnect()` reuses the same Dialer instance and URL (your Proxy/TLS stay in effect).
+
+Migration (from < v0.15.0):
+- If you relied on wrapper to tweak Dialer fields, now set them on the Dialer before passing it, or provide explicit values in `WebSocketConfig`.
+- If you need a specific BufferSize regardless of Dialer buffers, set `BufferSize` in config.
 
 ### 🛡️ Circuit Breaker recovery example
 ```go

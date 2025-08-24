@@ -86,7 +86,7 @@ func TestEchoHandler(t *testing.T) {
 	require.NoError(t, err)
 
 	sw.Open()
-	<-sw.Started()
+	require.True(t, sw.WaitStarted(), "client did not start in time")
 
 	got := make(chan string, 1)
 	sw.Subscribe(func(evt web_socket.MessageEvent) {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -146,10 +147,11 @@ type WebSocketMetrics struct {
 }
 
 type webSocketWrapper struct {
-	conn     *websocket.Conn
-	dialer   *websocket.Dialer
-	url      string
-	isServer atomic.Bool
+	conn          *websocket.Conn
+	dialer        *websocket.Dialer
+	url           string
+	requestHeader http.Header
+	isServer      atomic.Bool
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -194,6 +196,13 @@ type webSocketWrapper struct {
 	lastMu      sync.RWMutex
 	lastErr     error
 	lastErrKind MessageKind
+
+	// Persisted config for consistent reconnect behavior
+	cfgReadTimeout       time.Duration
+	cfgWriteTimeout      time.Duration
+	cfgPongWait          time.Duration
+	cfgMaxMessageSize    int64
+	cfgEnableCompression bool
 }
 
 // Конфігурація перепідключення
@@ -207,23 +216,56 @@ type ReconnectConfig struct {
 
 // Конфігурація WebSocket
 type WebSocketConfig struct {
-	URL               string
-	Dialer            *websocket.Dialer
-	BufferSize        int
-	ReadTimeout       time.Duration
-	WriteTimeout      time.Duration
-	PingInterval      time.Duration
-	PongWait          time.Duration
-	MaxMessageSize    int64
+	// URL is the full WebSocket URL to dial.
+	URL string
+	// Dialer, when provided, is used as-is for the handshake (Proxy/TLS/HandshakeTimeout/Compression).
+	// When nil, a clone of websocket.DefaultDialer is used.
+	Dialer *websocket.Dialer
+	// RequestHeader is passed to Dial for the initial handshake.
+	RequestHeader http.Header
+	// BufferSize sets the internal send buffer size. When 0, it is derived from Dialer Read/WriteBufferSize,
+	// or defaults to 128 if both are zero.
+	BufferSize int
+	// ReadTimeout/WriteTimeout are wrapper-level socket deadlines applied after connect and used for Ping/Pong.
+	ReadTimeout  time.Duration
+	WriteTimeout time.Duration
+	// PingInterval starts a keepalive ping loop when > 0. PongWait extends read deadline on pong.
+	PingInterval time.Duration
+	PongWait     time.Duration
+	// MaxMessageSize applies SetReadLimit on the connection.
+	MaxMessageSize int64
+	// EnableCompression enables permessage-deflate on the connection. If false here but true on Dialer,
+	// compression is still enabled.
 	EnableCompression bool
 	EnableMetrics     bool
-	ReconnectConfig   *ReconnectConfig
+	// ReconnectConfig describes optional auto-reconnect behavior.
+	ReconnectConfig *ReconnectConfig
 }
 
 // Конструктор з конфігурацією
 func NewWebSocketWrapperWithConfig(config WebSocketConfig) (WebSocketClientInterface, error) {
+	// Використовуємо переданий Dialer як є; якщо не передали — клонуємо DefaultDialer
+	if config.Dialer == nil {
+		d := *websocket.DefaultDialer
+		config.Dialer = &d
+	}
+
 	if config.BufferSize == 0 {
-		config.BufferSize = 128
+		// Derive buffer size from dialer if available; fallback to sane default
+		rb := config.Dialer.ReadBufferSize
+		wb := config.Dialer.WriteBufferSize
+		if rb > 0 || wb > 0 {
+			if rb >= wb {
+				config.BufferSize = rb
+			} else {
+				config.BufferSize = wb
+			}
+			if config.BufferSize == 0 { // both zero
+				config.BufferSize = 128
+			}
+		} else {
+			config.BufferSize = 128
+		}
 	}
 	if config.ReadTimeout == 0 {
 		config.ReadTimeout = 30 * time.Second
@@ -241,32 +283,68 @@ func NewWebSocketWrapperWithConfig(config WebSocketConfig) (WebSocketClientInter
 		config.MaxMessageSize = 512 * 1024 // 512KB
 	}
 
-	conn, _, err := config.Dialer.Dial(config.URL, nil)
+	// Використовуємо надані заголовки для початкового рукостискання (якщо є)
+	conn, resp, err := config.Dialer.Dial(config.URL, config.RequestHeader)
 	if err != nil {
-		return nil, &WebSocketError{
-			Op:      OpSend,
-			Message: "failed to connect to WebSocket",
-			Err:     err,
-			Code:    1,
+		// Збагачуємо помилку деталями handhshake (HTTP статус + тіло, якщо є)
+		code := 0
+		msg := "failed to connect to WebSocket"
+		if resp != nil {
+			code = resp.StatusCode
+			// Прочитаємо частину тіла, щоб не роздувати повідомлення
+			var bodySnippet string
+			if resp.Body != nil {
+				b, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+				_ = resp.Body.Close()
+				if len(b) > 0 {
+					bodySnippet = string(b)
+				}
+			}
+			if bodySnippet != "" {
+				msg = fmt.Sprintf("handshake failed: %s — %s", resp.Status, bodySnippet)
+			} else {
+				msg = fmt.Sprintf("handshake failed: %s", resp.Status)
+			}
 		}
+		return nil, &WebSocketError{Op: OpSend, Message: msg, Err: err, Code: code}
 	}
 
 	// Налаштування з'єднання
 	conn.SetReadLimit(config.MaxMessageSize)
+	// Apply initial deadlines based on config
+	if config.ReadTimeout > 0 {
+		_ = conn.SetReadDeadline(time.Now().Add(config.ReadTimeout))
+	}
+	if config.WriteTimeout > 0 {
+		_ = conn.SetWriteDeadline(time.Now().Add(config.WriteTimeout))
+	}
+	// Respect compression preference from either config or dialer (also reflect into config for consistency)
+	if config.EnableCompression || config.Dialer.EnableCompression {
+		config.EnableCompression = true
+		conn.EnableWriteCompression(true)
+	}
 
 	// Побудова екземпляра, щоб ініціювати додаткові поля
 	w := &webSocketWrapper{
-		conn:      conn,
-		dialer:    config.Dialer,
-		url:       config.URL,
-		sendChan:  make(chan WriteEvent, config.BufferSize),
-		started:   make(chan struct{}, 1),
-		stopped:   make(chan struct{}, 1),
-		subs:      make(map[int]func(MessageEvent)),
-		timeoutMu: sync.RWMutex{},
-		timeout:   config.ReadTimeout,
-		startTime: time.Now(),
+		conn:                 conn,
+		dialer:               config.Dialer,
+		url:                  config.URL,
+		requestHeader:        config.RequestHeader,
+		sendChan:             make(chan WriteEvent, config.BufferSize),
+		started:              make(chan struct{}, 1),
+		stopped:              make(chan struct{}, 1),
+		subs:                 make(map[int]func(MessageEvent)),
+		timeoutMu:            sync.RWMutex{},
+		timeout:              config.ReadTimeout,
+		startTime:            time.Now(),
+		cfgReadTimeout:       config.ReadTimeout,
+		cfgWriteTimeout:      config.WriteTimeout,
+		cfgPongWait:          config.PongWait,
+		cfgMaxMessageSize:    config.MaxMessageSize,
+		cfgEnableCompression: config.EnableCompression,
 	}
+
+	// Config persisted in wrapper fields (cfg*)
 
 	// Зберігаємо конфіг перепідключення (на майбутнє)
 	if config.ReconnectConfig != nil {
@@ -278,11 +356,34 @@ func NewWebSocketWrapperWithConfig(config WebSocketConfig) (WebSocketClientInter
 		w.pingTicker = time.NewTicker(config.PingInterval)
 	}
 
-	// Обробник PONG: оновлює дедлайн і lastPong
-	w.conn.SetPongHandler(func(string) error {
+	// Обробник PONG: оновлює дедлайн і lastPong (override any pre-existing)
+	w.conn.SetPongHandler(func(s string) error {
 		w.lastPong = time.Now()
-		w.conn.SetReadDeadline(time.Now().Add(config.PongWait))
+		if w.cfgPongWait > 0 {
+			_ = w.conn.SetReadDeadline(time.Now().Add(w.cfgPongWait))
+		}
 		return nil
+	})
+
+	// Обробник PING: відправляє PONG контрол-фрейм (override any pre-existing)
+	w.conn.SetPingHandler(func(s string) error {
+		deadline := time.Time{}
+		if w.cfgWriteTimeout > 0 {
+			deadline = time.Now().Add(w.cfgWriteTimeout)
+			_ = w.conn.SetWriteDeadline(deadline)
+		}
+		w.writeMu.Lock()
+		defer w.writeMu.Unlock()
+		return w.conn.WriteControl(websocket.PongMessage, []byte(s), deadline)
+	})
+
+	// Обробник CLOSE: зберігає останню подію (override any pre-existing)
+	w.conn.SetCloseHandler(func(code int, text string) error {
+		w.lastMu.Lock()
+		w.lastErr = &WebSocketError{Op: OpReceive, Message: text, Code: code}
+		w.lastErrKind = KindControl
+		w.lastMu.Unlock()
+		return nil // use default close behavior
 	})
 
 	return w, nil
@@ -741,13 +842,44 @@ func (w *webSocketWrapper) Reconnect() error {
 	// Захист від конкурентних реконектів
 	w.reconnectMu.Lock()
 	defer w.reconnectMu.Unlock()
-	conn, _, err := w.dialer.Dial(w.url, nil)
+	conn, _, err := w.dialer.Dial(w.url, w.requestHeader)
 	if err != nil {
 		return err
 	}
 	old := w.conn
 	w.conn = conn
 	_ = old.Close()
+	// Reapply limits, deadlines, compression and default handlers after reconnect
+	if w.cfgMaxMessageSize > 0 {
+		w.conn.SetReadLimit(w.cfgMaxMessageSize)
+	}
+	if w.cfgReadTimeout > 0 {
+		_ = w.conn.SetReadDeadline(time.Now().Add(w.cfgReadTimeout))
+	}
+	if w.cfgWriteTimeout > 0 {
+		_ = w.conn.SetWriteDeadline(time.Now().Add(w.cfgWriteTimeout))
+	}
+	if w.cfgEnableCompression {
+		w.conn.EnableWriteCompression(true)
+	}
+	// Reinstall default handlers (they can be overridden later)
+	w.conn.SetPongHandler(func(s string) error {
+		w.lastPong = time.Now()
+		if w.cfgPongWait > 0 {
+			_ = w.conn.SetReadDeadline(time.Now().Add(w.cfgPongWait))
+		}
+		return nil
+	})
+	w.conn.SetPingHandler(func(s string) error {
+		deadline := time.Time{}
+		if w.cfgWriteTimeout > 0 {
+			deadline = time.Now().Add(w.cfgWriteTimeout)
+			_ = w.conn.SetWriteDeadline(deadline)
+		}
+		w.writeMu.Lock()
+		defer w.writeMu.Unlock()
+		return w.conn.WriteControl(websocket.PongMessage, []byte(s), deadline)
+	})
 	if w.onConnected != nil {
 		w.onConnected()
 	}

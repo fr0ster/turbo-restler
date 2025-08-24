@@ -32,7 +32,10 @@ func StartWebSocketTestServer(handler http.Handler) (url string, cleanup func())
 	})
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(nil, err)
+	if err != nil {
+		// Do not use testing helpers without a T; panic is fine in test setup
+		panic(err)
+	}
 	port := ln.Addr().(*net.TCPAddr).Port
 
 	srv := &http.Server{Handler: wrappedHandler}
@@ -171,7 +174,7 @@ func TestReadWrite(t *testing.T) {
 	})
 	sw.SetTimeout(1000 * time.Millisecond)
 	sw.Open()
-	time.Sleep(1000 * time.Millisecond)
+	require.True(t, sw.WaitStarted(), "client did not start in time")
 
 	done := make(chan struct{})
 	errCh := make(chan error, 1)
@@ -307,7 +310,7 @@ func TestConcurrentConsumers(t *testing.T) {
 		}
 	})
 	sw.Open()
-	time.Sleep(1000 * time.Millisecond)
+	require.True(t, sw.WaitStarted(), "client did not start in time")
 
 	n := 5
 	var wg sync.WaitGroup
@@ -554,6 +557,7 @@ func TestMessageLoggerCalled(t *testing.T) {
 	sw, err := web_socket.NewWebSocketWrapper(websocket.DefaultDialer, u)
 	require.NoError(t, err)
 	sw.Open()
+	require.True(t, sw.WaitStarted(), "client did not start in time")
 
 	logged := make(chan web_socket.LogRecord, 1)
 
@@ -592,6 +596,7 @@ func TestSubscribeUnsubscribe(t *testing.T) {
 	sw, err := web_socket.NewWebSocketWrapper(websocket.DefaultDialer, u)
 	require.NoError(t, err)
 	sw.Open()
+	require.True(t, sw.WaitStarted(), "client did not start in time")
 
 	called := make(chan string, 2)
 
@@ -688,6 +693,7 @@ func TestSendWithAwaitCallback(t *testing.T) {
 	sw, err := web_socket.NewWebSocketWrapper(websocket.DefaultDialer, u)
 	require.NoError(t, err)
 	sw.Open()
+	require.True(t, sw.WaitStarted(), "client did not start in time")
 
 	awaitCalled := make(chan error, 1)
 
