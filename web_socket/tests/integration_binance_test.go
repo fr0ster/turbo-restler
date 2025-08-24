@@ -85,7 +85,7 @@ func Test_BinanceTestnet_WS_CombinedKline(t *testing.T) {
 	select {
 	case <-done:
 	// ok
-	case <-time.After(15 * time.Second):
+	case <-time.After(30 * time.Second):
 		t.Fatal("timeout waiting for first combined kline message from Binance testnet")
 	}
 }
