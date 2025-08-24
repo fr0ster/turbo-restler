@@ -126,7 +126,83 @@ config := &RestAPIConfig{
 response, err := CallRestAPIWithConfig(req, config)
 ```
 
-### 🔄 Automatic Reconnection
+### 🌐 Custom http.Client (timeouts, proxy)
+You can inject your own `*http.Client` (with custom Timeout/Proxy/Transport). When provided, Restler will use it and sync `Timeout` back into `RestAPIConfig`:
+
+```go
+proxyURL, _ := url.Parse("http://localhost:8080")
+tr := &http.Transport{Proxy: http.ProxyURL(proxyURL)}
+cli := &http.Client{Timeout: 2 * time.Second, Transport: tr}
+
+cfg := &RestAPIConfig{HTTPClient: cli}
+resp, err := CallRestAPIWithConfig(req, cfg)
+```
+
+### � Retry and Error Semantics (v0.14.26)
+- Retries: request is attempted `MaxRetries + 1` times; delay grows linearly by `RetryDelay * (attempt+1)`.
+- Network/transport errors: returns `err` and `response == nil`.
+- HTTP errors (status >= 400):
+    - Returns `err` describing HTTP status.
+    - `response` contains parsed JSON body if available; otherwise `message` field contains raw body.
+    - For 5xx and if retries remain, it will retry before returning.
+
+### 🧰 Defaults and Backward Compatibility
+- `CallRestAPI(req)` uses sane defaults: `Timeout=30s`, `MaxRetries=3`, `RetryDelay=1s`, no Circuit Breaker.
+- Passing `nil` config to `CallRestAPIWithConfig` applies the same defaults.
+- When `HTTPClient` is provided in config, it is used as-is and its `Timeout` is synced back to `RestAPIConfig.Timeout`.
+
+### 🧲 Circuit Breaker States (quick note)
+- Closed: all requests pass; failures are counted.
+- Open: requests are blocked until `RecoveryTimeout` elapses.
+- Half-Open: allows up to `HalfOpenLimit` trial requests; on success → Closed, on failure → Open.
+
+### 🌐 Proxy usage example
+```go
+proxyURL, _ := url.Parse("http://127.0.0.1:8080")
+transport := &http.Transport{Proxy: http.ProxyURL(proxyURL)}
+client := &http.Client{Timeout: 2 * time.Second, Transport: transport}
+
+cfg := &RestAPIConfig{HTTPClient: client}
+req, _ := http.NewRequest("GET", "https://httpbin.org/get", nil)
+
+resp, err := CallRestAPIWithConfig(req, cfg)
+if err != nil {
+    // handle error
+}
+_ = resp // use response JSON
+```
+
+### 🛡️ Circuit Breaker recovery example
+```go
+cfg := &RestAPIConfig{
+    Timeout:    1 * time.Second,
+    MaxRetries: 0,
+    CircuitBreaker: &CircuitBreakerConfig{
+        FailureThreshold: 3,
+        RecoveryTimeout:  2 * time.Second,
+        HalfOpenLimit:    1,
+    },
+}
+
+// Assume reqFailing → server returns 500, reqSuccess → server returns 200
+for i := 0; i < 3; i++ {
+    _, err := CallRestAPIWithConfig(reqFailing, cfg) // increments failures
+    _ = err // expect HTTP 500 error
+}
+
+// Breaker now Open → blocks requests
+_, err := CallRestAPIWithConfig(reqFailing, cfg)
+// err contains: "circuit breaker is open"
+
+// Wait for recovery window
+time.Sleep(3 * time.Second)
+
+// First call after timeout is allowed in Half-Open
+_, err = CallRestAPIWithConfig(reqSuccess, cfg)
+// success → breaker transitions to Closed
+```
+
+### �🔄 Automatic Reconnection
 ```go
 config := WebSocketConfig{
     ReconnectConfig: &ReconnectConfig{

@@ -1,5 +1,42 @@
 # Release Notes for Turbo-Restler
 
+## v0.14.27
+
+### Release Date: 2025-08-24
+
+### Docs/Test meta (no code changes)
+
+- Added missing release notes for the previous version `v0.14.26`.
+- Clarified test coverage around REST retries, Circuit Breaker states, and http.Client injection.
+- No API or behavior changes.
+
+Tag: v0.14.27
+
+## v0.14.26
+
+### Release Date: 2025-08-24
+
+### Test/Docs + REST Enhancements (no breaking changes)
+
+What's new:
+- REST API tests: Added comprehensive tests for CallRestAPIWithConfig
+  - Circuit Breaker behavior (Closed/Open/Half-Open transitions)
+  - Retry/backoff semantics and HTTP 5xx handling
+  - Network error path ensures response == nil
+  - Backward compatibility with CallRestAPI
+  - External http.Client injection (timeout/proxy)
+- Test utilities: Introduced helpers used by tests
+  - StartHandlerServer, StartStaticJSONServer
+  - StartForwardProxy, ProxyHits
+  - NewHTTPClientWithProxy (constructs client with proxy + timeout)
+- Build hygiene: Aligned test package names and helpers to avoid undefined symbols during test compilation.
+
+Notes:
+- Public API remains unchanged. Enhancements are covered by tests and do not introduce breaking changes.
+- Circuit Breaker and client-injection behavior are now thoroughly validated.
+
+Tag: v0.14.26
+
 ## v0.14.25
 
 ### Release Date: 2024-08-20

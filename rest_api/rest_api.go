@@ -18,6 +18,9 @@ type (
 
 // Конфігурація REST API
 type RestAPIConfig struct {
+	// HTTPClient дозволяє передати зовнішній http.Client (із власними Timeout/Proxy/Transport)
+	// Якщо встановлено, Restler використовує цей клієнт і синхронізує Timeout у конфігурацію.
+	HTTPClient     *http.Client
 	Timeout        time.Duration
 	MaxRetries     int
 	RetryDelay     time.Duration
@@ -126,9 +129,15 @@ func CallRestAPIWithConfig(req *http.Request, config *RestAPIConfig) (
 		}
 	}
 
-	// Створення HTTP клієнта з таймаутом
-	client := &http.Client{
-		Timeout: config.Timeout,
+	// Визначення HTTP клієнта
+	var client *http.Client
+	if config.HTTPClient != nil {
+		// Використовуємо зовнішній клієнт. Синхронізуємо таймаут у конфіг.
+		client = config.HTTPClient
+		config.Timeout = client.Timeout
+	} else {
+		// Створюємо дефолтний клієнт з таймаутом з конфігурації
+		client = &http.Client{Timeout: config.Timeout}
 	}
 
 	// Створення або отримання Circuit Breaker якщо потрібно
