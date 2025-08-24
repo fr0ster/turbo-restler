@@ -194,7 +194,7 @@ ws, err := NewWebSocketWrapper(dialer, "wss://example.com/ws")
 Notes:
 - On connect we always set connection-level handlers: Pong updates read deadline (PongWait), Ping replies with Pong using write deadline, Close records the last error. You can override them later via `SetPingHandler` / `SetPongHandler`.
 - `RequestHeader` in `WebSocketConfig` (when using `NewWebSocketWrapperWithConfig`) is passed to Dial.
-- `Reconnect()` reuses the same Dialer instance and URL (your Proxy/TLS stay in effect).
+- `Reconnect()` reuses the same Dialer instance and URL and the same `RequestHeader` (your Proxy/TLS and headers stay in effect). After reconnect we also reapply wrapper-level controls: `ReadTimeout`, `WriteTimeout`, `PongWait`-based read-deadline bump, `MaxMessageSize` (read limit), and `EnableCompression`.
 
 Migration (from < v0.15.0):
 - If you relied on wrapper to tweak Dialer fields, now set them on the Dialer before passing it, or provide explicit values in `WebSocketConfig`.

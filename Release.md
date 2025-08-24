@@ -20,7 +20,8 @@ What's changed (WebSocket):
 - `RequestHeader` from `WebSocketConfig` (if provided) is passed to Dial.
 
 Notes (Reconnect):
-- `Reconnect()` reuses the stored URL and the same Dialer instance, preserving your Proxy/TLS/etc.
+- `Reconnect()` reuses the stored URL, the same Dialer instance, and the same `RequestHeader`, preserving your Proxy/TLS/etc.
+- After reconnect, the wrapper reapplies connection-level settings from `WebSocketConfig` persisted in the wrapper: `ReadTimeout`, `WriteTimeout`, `PongWait` (via Pong handler), `MaxMessageSize` (read limit), and `EnableCompression`.
 
 Migration guidance:
 - If your app relied on the wrapper mutating the Dialer (timeouts/buffers/compression), set these on your Dialer before passing it in, or provide them explicitly in `WebSocketConfig`.
